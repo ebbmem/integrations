@@ -1,0 +1,42 @@
+id: ic1.scoping.namespace_conflict_400
+title: Mismatching namespace header vs body returns 400 namespace_conflict and invalid format returns 400 namespace_invalid
+ic1_section: "2.2"
+modes:
+  - mock
+  - live
+steps:
+  - action: rest
+    method: POST
+    path: /api/v1/memory/remember
+    auth: ebb_test_alice_key
+    headers:
+      X-Ebb-Namespace: "acme:u:alice"
+    json:
+      content: "Conflicting namespace test"
+      namespace: "other:u:bob"
+    expect_status: 400
+    expect_json:
+      detail: "namespace_conflict"
+  - action: rest
+    method: POST
+    path: /api/v1/memory/recall
+    auth: ebb_test_alice_key
+    headers:
+      X-Ebb-Namespace: "acme:u:alice"
+    json:
+      query: "anything"
+      namespace: "acme:u:other"
+    expect_status: 400
+    expect_json:
+      detail: "namespace_conflict"
+  - action: rest
+    method: POST
+    path: /api/v1/memory/remember
+    auth: ebb_test_alice_key
+    headers:
+      X-Ebb-Namespace: "invalid namespace with spaces!"
+    json:
+      content: "Invalid namespace format"
+    expect_status: 400
+    expect_json:
+      detail: "namespace_invalid"

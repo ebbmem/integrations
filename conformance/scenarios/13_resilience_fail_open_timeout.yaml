@@ -1,0 +1,12 @@
+id: ic1.resilience.fail_open_timeout
+title: Client recall fails open on timeouts and transient 503 errors
+ic1_section: "6.1"
+modes:
+  - mock
+  - adapter-unit
+adapter_contract:
+  fail_open_default: true
+  returns_empty_on_timeout: true
+steps:
+  - action: client_check
+    operation: fail_open_recall

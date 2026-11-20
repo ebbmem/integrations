@@ -1,0 +1,55 @@
+id: ic1.isolation.uniform_404
+title: Unauthorized, cross-tenant, and erased namespaces return uniform 404 Not Found
+ic1_section: "2.3"
+modes:
+  - mock
+  - live
+steps:
+  - action: rest
+    method: POST
+    path: /api/v1/memory/remember
+    auth: ebb_test_bob_key
+    json:
+      content: "Bob private secret project alpha"
+      namespace: "other:u:bob"
+    expect_status: 201
+    save_as: bob_mem
+  - action: rest
+    method: POST
+    path: /api/v1/memory/recall
+    auth: ebb_test_alice_key
+    json:
+      query: "project alpha"
+      namespace: "other:u:bob"
+    expect_status: 404
+    expect_json:
+      detail: "Not Found"
+  - action: rest
+    method: GET
+    path: "/api/v1/memory/${bob_mem.id}"
+    auth: ebb_test_alice_key
+    query:
+      namespace: "other:u:bob"
+    expect_status: 404
+    expect_json:
+      detail: "Not Found"
+  - action: rest
+    method: GET
+    path: /api/v1/memory/non-existent-id
+    auth: ebb_test_alice_key
+    query:
+      namespace: "acme:u:alice"
+    expect_status: 404
+    expect_json:
+      detail: "Not Found"
+  - action: erase_namespace
+    namespace: "acme:u:alice"
+  - action: rest
+    method: GET
+    path: /api/v1/memory/status
+    auth: ebb_test_alice_key
+    headers:
+      X-Ebb-Namespace: "acme:u:alice"
+    expect_status: 404
+    expect_json:
+      detail: "Not Found"

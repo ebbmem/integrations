@@ -1,0 +1,550 @@
+{
+  "contract": "ebbmem-mcp-v2",
+  "version": "0.1.0",
+  "revisions": {
+    "preferred": "2026-07-28",
+    "supported": [
+      "2026-07-28",
+      "2025-11-25",
+      "2025-06-18",
+      "2025-03-26",
+      "2024-11-05"
+    ],
+    "stateless_headers": [
+      "MCP-Protocol-Version",
+      "Mcp-Method",
+      "Mcp-Name"
+    ]
+  },
+  "profiles": {
+    "core": [
+      "memory_remember",
+      "memory_recall",
+      "memory_reinforce",
+      "memory_forget",
+      "memory_context_pack",
+      "memory_status"
+    ],
+    "full": [
+      "memory_remember",
+      "memory_recall",
+      "memory_reinforce",
+      "memory_forget",
+      "memory_context_pack",
+      "memory_status",
+      "memory_associate",
+      "memory_why_not",
+      "memory_introspect",
+      "memory_episodic_remember",
+      "memory_episodic_tail",
+      "memory_federated_recall",
+      "memory_rehearse",
+      "memory_search",
+      "memory_get"
+    ],
+    "admin": [
+      "memory_remember",
+      "memory_recall",
+      "memory_reinforce",
+      "memory_forget",
+      "memory_context_pack",
+      "memory_status",
+      "memory_associate",
+      "memory_why_not",
+      "memory_introspect",
+      "memory_episodic_remember",
+      "memory_episodic_tail",
+      "memory_federated_recall",
+      "memory_rehearse",
+      "memory_search",
+      "memory_get",
+      "memory_dream",
+      "memory_reflect",
+      "memory_purge"
+    ]
+  },
+  "universal_aliases": [
+    "memory_search",
+    "memory_get"
+  ],
+  "admin_only_tools": [
+    "memory_dream",
+    "memory_reflect",
+    "memory_purge"
+  ],
+  "output_schema_tools": [
+    "memory_remember",
+    "memory_recall",
+    "memory_reinforce",
+    "memory_search",
+    "memory_get"
+  ],
+  "tools": {
+    "memory_remember": {
+      "name": "memory_remember",
+      "title": "Remember Memory",
+      "description": "Persist a memory item into the target namespace and tier with optional idempotency key.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "content": { "type": "string", "minLength": 1 },
+          "tier": {
+            "type": "string",
+            "enum": ["working", "episodic", "semantic", "procedural"]
+          },
+          "tags": { "type": "array", "items": { "type": "string" } },
+          "importance": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+          "valence": { "type": "number", "minimum": -1.0, "maximum": 1.0 },
+          "arousal": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+          "session_id": { "type": "string" },
+          "namespace": { "type": "string" },
+          "metadata": { "type": "object" },
+          "idempotency_key": { "type": "string", "minLength": 1, "maxLength": 256 }
+        },
+        "required": ["content"],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "memory_id": { "type": "string" },
+          "namespace": { "type": "string" },
+          "tier": { "type": "string" },
+          "storage_strength": { "type": "number" },
+          "replayed": { "type": "boolean" }
+        },
+        "required": ["id", "memory_id", "namespace", "tier", "storage_strength"]
+      }
+    },
+    "memory_recall": {
+      "name": "memory_recall",
+      "title": "Recall Memories",
+      "description": "Read-only cognitive recall query across accessible memories in the target namespace.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string", "minLength": 1 },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 100 },
+          "tier": {
+            "type": "string",
+            "enum": ["working", "episodic", "semantic", "procedural"]
+          },
+          "tags": { "type": "array", "items": { "type": "string" } },
+          "session_id": { "type": "string" },
+          "namespace": { "type": "string" }
+        },
+        "required": ["query"],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string" },
+          "count": { "type": "integer" },
+          "recall_id": { "type": "string" },
+          "results": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "string" },
+                "memory_id": { "type": "string" },
+                "tier": { "type": "string" },
+                "content": { "type": "string" },
+                "score": { "type": "number" }
+              },
+              "required": ["id", "memory_id", "tier", "content", "score"]
+            }
+          }
+        },
+        "required": ["query", "count", "results"]
+      }
+    },
+    "memory_reinforce": {
+      "name": "memory_reinforce",
+      "title": "Reinforce Memory",
+      "description": "Apply explicit post-use reinforcement feedback to a memory that actually informed output.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "memory_id": { "type": "string", "minLength": 1 },
+          "delta": { "type": "number", "minimum": -1.0, "maximum": 1.0 },
+          "used_ids": { "type": "array", "items": { "type": "string" } },
+          "recall_id": { "type": "string" },
+          "namespace": { "type": "string" }
+        },
+        "required": ["memory_id"],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "status": { "type": "string" },
+          "outcome": { "type": "string", "enum": ["counted", "spaced_out"] },
+          "memory_id": { "type": "string" },
+          "delta": { "type": "number" },
+          "storage_strength": { "type": "number" },
+          "message": { "type": "string" }
+        },
+        "required": ["status", "outcome", "memory_id", "delta", "message"]
+      }
+    },
+    "memory_forget": {
+      "name": "memory_forget",
+      "title": "Forget Memory",
+      "description": "Soft-delete (tombstone) a memory from active recall while retaining audit lineage.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "memory_id": { "type": "string", "minLength": 1 },
+          "namespace": { "type": "string" }
+        },
+        "required": ["memory_id"],
+        "additionalProperties": false
+      }
+    },
+    "memory_context_pack": {
+      "name": "memory_context_pack",
+      "title": "Build Context Pack",
+      "description": "Assemble a read-only structured context pack from relevant memories for prompt prefix stability.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string", "minLength": 1 },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 50 },
+          "namespace": { "type": "string" }
+        },
+        "required": ["query"],
+        "additionalProperties": false
+      }
+    },
+    "memory_status": {
+      "name": "memory_status",
+      "title": "Memory Status",
+      "description": "Inspect namespace memory counts and exposure logging configuration.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "namespace": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "memory_associate": {
+      "name": "memory_associate",
+      "title": "Associate Memories",
+      "description": "Create an explicit associative link between two existing memories.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "source_id": { "type": "string", "minLength": 1 },
+          "target_id": { "type": "string", "minLength": 1 },
+          "relation": { "type": "string" },
+          "namespace": { "type": "string" }
+        },
+        "required": ["source_id", "target_id"],
+        "additionalProperties": false
+      }
+    },
+    "memory_why_not": {
+      "name": "memory_why_not",
+      "title": "Explain Omission",
+      "description": "Explain why a candidate memory was excluded or outranked for a recall query.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "memory_id": { "type": "string", "minLength": 1 },
+          "query": { "type": "string", "minLength": 1 },
+          "namespace": { "type": "string" }
+        },
+        "required": ["memory_id", "query"],
+        "additionalProperties": false
+      }
+    },
+    "memory_introspect": {
+      "name": "memory_introspect",
+      "title": "Introspect Memory",
+      "description": "Inspect cognitive metadata, tier, and strength details of a stored memory.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "memory_id": { "type": "string", "minLength": 1 },
+          "namespace": { "type": "string" }
+        },
+        "required": ["memory_id"],
+        "additionalProperties": false
+      }
+    },
+    "memory_episodic_remember": {
+      "name": "memory_episodic_remember",
+      "title": "Remember Episode",
+      "description": "Append an episodic memory turn tied to a session timeline.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "content": { "type": "string", "minLength": 1 },
+          "session_id": { "type": "string" },
+          "namespace": { "type": "string" },
+          "idempotency_key": { "type": "string" }
+        },
+        "required": ["content"],
+        "additionalProperties": false
+      }
+    },
+    "memory_episodic_tail": {
+      "name": "memory_episodic_tail",
+      "title": "Tail Episodic Timeline",
+      "description": "Read recent episodic memories in reverse chronological order without mutating strength.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "limit": { "type": "integer", "minimum": 1, "maximum": 100 },
+          "session_id": { "type": "string" },
+          "namespace": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "memory_federated_recall": {
+      "name": "memory_federated_recall",
+      "title": "Federated Recall",
+      "description": "Perform read-only recall across authorized namespaces for the caller identity.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string", "minLength": 1 },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 100 },
+          "namespaces": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["query"],
+        "additionalProperties": false
+      }
+    },
+    "memory_rehearse": {
+      "name": "memory_rehearse",
+      "title": "Rehearse Memory",
+      "description": "Explicitly rehearse an active memory item to sustain retention.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "memory_id": { "type": "string", "minLength": 1 },
+          "namespace": { "type": "string" }
+        },
+        "required": ["memory_id"],
+        "additionalProperties": false
+      }
+    },
+    "memory_search": {
+      "name": "memory_search",
+      "title": "Search Memories (Alias)",
+      "description": "Universal read-only alias for memory_recall across all MCP profiles.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string", "minLength": 1 },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 100 },
+          "namespace": { "type": "string" }
+        },
+        "required": ["query"],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string" },
+          "count": { "type": "integer" },
+          "recall_id": { "type": "string" },
+          "results": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "string" },
+                "memory_id": { "type": "string" },
+                "tier": { "type": "string" },
+                "content": { "type": "string" },
+                "score": { "type": "number" }
+              },
+              "required": ["id", "memory_id", "tier", "content", "score"]
+            }
+          }
+        },
+        "required": ["query", "count", "results"]
+      }
+    },
+    "memory_get": {
+      "name": "memory_get",
+      "title": "Get Memory (Alias)",
+      "description": "Universal read-only alias to fetch a single active memory by ID across all MCP profiles.",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "memory_id": { "type": "string", "minLength": 1 },
+          "namespace": { "type": "string" }
+        },
+        "required": ["memory_id"],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "memory_id": { "type": "string" },
+          "namespace": { "type": "string" },
+          "tier": { "type": "string" },
+          "content": { "type": "string" },
+          "storage_strength": { "type": "number" }
+        },
+        "required": ["id", "memory_id", "namespace", "tier", "content"]
+      }
+    },
+    "memory_dream": {
+      "name": "memory_dream",
+      "title": "Run Consolidation",
+      "description": "Admin-only offline memory consolidation pass for a namespace.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "namespace": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "memory_reflect": {
+      "name": "memory_reflect",
+      "title": "Reflect Memories",
+      "description": "Admin-only synthesis pass over stored namespace memories.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "namespace": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "memory_purge": {
+      "name": "memory_purge",
+      "title": "Purge Memory",
+      "description": "Admin-only irreversible physical erasure of a memory and its audit tombstones.",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "memory_id": { "type": "string", "minLength": 1 },
+          "reason": { "type": "string" },
+          "namespace": { "type": "string" }
+        },
+        "required": ["memory_id"],
+        "additionalProperties": false
+      }
+    }
+  }
+}

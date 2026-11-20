@@ -1,0 +1,52 @@
+id: ic1.closure.recall_id_valid_target
+title: Recall emits valid recall_id tied to recalled target memories in exposure log (36-char UUID on REST, 32-char hex on MCP)
+ic1_section: "8.1"
+modes:
+  - mock
+  - live
+setup:
+  exposure_logging:
+    - "acme:u:alice"
+steps:
+  - action: rest
+    method: POST
+    path: /api/v1/memory/remember
+    auth: ebb_test_alice_key
+    json:
+      content: "Closure target memory for recall_id correlation"
+      tier: semantic
+    expect_status: 201
+    save_as: target
+  - action: rest
+    method: POST
+    path: /api/v1/memory/recall
+    auth: ebb_test_alice_key
+    json:
+      query: "Closure target"
+    expect_status: 200
+    expect_regex:
+      recall_id: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    save_as: rest_rec
+  - action: assert_recall_id_valid
+    recall_id: "${rest_rec.recall_id}"
+    memory_id: "${target.id}"
+  - action: mcp
+    path: /mcp/core
+    auth: ebb_test_alice_key
+    headers:
+      MCP-Protocol-Version: "2026-07-28"
+    body:
+      jsonrpc: "2.0"
+      id: 1
+      method: tools/call
+      params:
+        name: memory_recall
+        arguments:
+          query: "Closure target"
+    expect_status: 200
+    expect_regex:
+      result.structuredContent.recall_id: "^[0-9a-f]{32}$"
+    save_as: mcp_rec
+  - action: assert_recall_id_valid
+    recall_id: "${mcp_rec.result.structuredContent.recall_id}"
+    memory_id: "${target.id}"

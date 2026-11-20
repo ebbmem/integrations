@@ -1,0 +1,51 @@
+id: ic1.recall.no_strength_change
+title: Recall is strictly read-only and never mutates storage_strength or recall_count
+ic1_section: "4.1"
+modes:
+  - mock
+  - live
+steps:
+  - action: rest
+    method: POST
+    path: /api/v1/memory/remember
+    auth: ebb_test_alice_key
+    json:
+      content: "Read-only recall invariant fact"
+      tier: semantic
+    expect_status: 201
+    save_as: mem
+  - action: rest
+    method: POST
+    path: /api/v1/memory/recall
+    auth: ebb_test_alice_key
+    json:
+      query: "invariant fact"
+      reinforce: true
+    expect_status: 200
+    expect_json:
+      count: 1
+  - action: rest
+    method: GET
+    path: /api/v1/memory/recall
+    auth: ebb_test_alice_key
+    query:
+      query: "invariant fact"
+      reinforce: "true"
+    expect_status: 200
+    expect_json:
+      count: 1
+  - action: assert_memory_state
+    namespace: "acme:u:alice"
+    memory_id: "${mem.id}"
+    expect:
+      storage_strength: 1.0
+      recall_count: 0
+      reinforce_count: 0
+  - action: rest
+    method: GET
+    path: "/api/v1/memory/${mem.id}"
+    auth: ebb_test_alice_key
+    expect_status: 200
+    expect_json:
+      storage_strength: 1.0
+      recall_count: 0

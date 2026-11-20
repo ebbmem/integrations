@@ -1,0 +1,84 @@
+id: ic1.reinforce.spacing_window_dedup
+title: Spacing window (1,800,000 ms) deduplicates rapid repeat reinforcement except procedural tier
+ic1_section: "4.3"
+modes:
+  - mock
+  - live
+steps:
+  - action: rest
+    method: POST
+    path: /api/v1/memory/remember
+    auth: ebb_test_alice_key
+    json:
+      content: "Semantic spacing window test item"
+      tier: semantic
+    expect_status: 201
+    save_as: sem
+  - action: rest
+    method: POST
+    path: /api/v1/memory/remember
+    auth: ebb_test_alice_key
+    json:
+      content: "Procedural spacing exemption test item"
+      tier: procedural
+    expect_status: 201
+    save_as: proc
+  - action: rest
+    method: POST
+    path: /api/v1/memory/reinforce
+    auth: ebb_test_alice_key
+    json:
+      memory_id: "${sem.id}"
+      delta: 0.5
+    expect_status: 200
+    expect_json:
+      outcome: "counted"
+      storage_strength: 1.5
+  - action: advance_clock
+    ms: 1000
+  - action: rest
+    method: POST
+    path: /api/v1/memory/reinforce
+    auth: ebb_test_alice_key
+    json:
+      memory_id: "${sem.id}"
+      delta: 0.5
+    expect_status: 200
+    expect_json:
+      outcome: "spaced_out"
+      storage_strength: 1.5
+  - action: advance_clock
+    ms: 1800000
+  - action: rest
+    method: POST
+    path: /api/v1/memory/reinforce
+    auth: ebb_test_alice_key
+    json:
+      memory_id: "${sem.id}"
+      delta: 0.5
+    expect_status: 200
+    expect_json:
+      outcome: "counted"
+      storage_strength: 2.0
+  - action: rest
+    method: POST
+    path: /api/v1/memory/reinforce
+    auth: ebb_test_alice_key
+    json:
+      memory_id: "${proc.id}"
+      delta: 0.5
+    expect_status: 200
+    expect_json:
+      outcome: "counted"
+      storage_strength: 1.1
+  - action: rest
+    method: POST
+    path: /api/v1/memory/reinforce
+    auth: ebb_test_alice_key
+    json:
+      memory_id: "${proc.id}"
+      delta: 0.5
+    expect_status: 200
+    expect_json:
+      outcome: "counted"
+      storage_strength: 1.2

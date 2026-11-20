@@ -1,0 +1,63 @@
+id: ic1.reinforce.recall_id_fallback
+title: Exposure logging toggles recall_id emission and reinforce tolerates absent or unknown recall_id
+ic1_section: "4.6"
+modes:
+  - mock
+  - live
+steps:
+  - action: rest
+    method: POST
+    path: /api/v1/memory/remember
+    auth: ebb_test_alice_key
+    json:
+      content: "Fallback recall correlation test"
+      tier: semantic
+    expect_status: 201
+    save_as: mem
+  - action: rest
+    method: POST
+    path: /api/v1/memory/recall
+    auth: ebb_test_alice_key
+    json:
+      query: "Fallback recall"
+    expect_status: 200
+    expect_absent_keys:
+      - recall_id
+  - action: set_exposure_logging
+    namespace: "acme:u:alice"
+    enabled: true
+  - action: rest
+    method: POST
+    path: /api/v1/memory/recall
+    auth: ebb_test_alice_key
+    json:
+      query: "Fallback recall"
+    expect_status: 200
+    expect_regex:
+      recall_id: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    save_as: rec_with_id
+  - action: rest
+    method: POST
+    path: /api/v1/memory/reinforce
+    auth: ebb_test_alice_key
+    json:
+      memory_id: "${mem.id}"
+      delta: 0.2
+      recall_id: "unknown-recall-id-fallback"
+    expect_status: 200
+    expect_json:
+      outcome: "counted"
+      storage_strength: 1.2
+  - action: advance_clock
+    ms: 1800000
+  - action: rest
+    method: POST
+    path: /api/v1/memory/reinforce
+    auth: ebb_test_alice_key
+    json:
+      memory_id: "${mem.id}"
+      delta: 0.2
+    expect_status: 200
+    expect_json:
+      outcome: "counted"
+      storage_strength: 1.4
