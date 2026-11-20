@@ -1,0 +1,77 @@
+id: ic1.remember.idempotent_retry
+title: Remember idempotency replay, mismatch conflict, payload mismatch, and in-flight 409
+ic1_section: "3.2"
+modes:
+  - mock
+  - live
+steps:
+  - action: rest
+    method: POST
+    path: /api/v1/memory/remember
+    auth: ebb_test_alice_key
+    headers:
+      Idempotency-Key: "idem-key-001"
+    json:
+      content: "Deploy target uses containerized workers"
+      tier: semantic
+      idempotency_key: "idem-key-001"
+    expect_status: 201
+    expect_json:
+      replayed: false
+    save_as: first
+  - action: rest
+    method: POST
+    path: /api/v1/memory/remember
+    auth: ebb_test_alice_key
+    headers:
+      Idempotency-Key: "idem-key-001"
+    json:
+      content: "Deploy target uses containerized workers"
+      tier: semantic
+      idempotency_key: "idem-key-001"
+    expect_status: 201
+    expect_headers:
+      Idempotent-Replayed: "true"
+    expect_json:
+      id: "${first.id}"
+      replayed: true
+  - action: rest
+    method: POST
+    path: /api/v1/memory/remember
+    auth: ebb_test_alice_key
+    headers:
+      Idempotency-Key: "idem-key-hdr"
+    json:
+      content: "Key mismatch test"
+      idempotency_key: "idem-key-body"
+    expect_status: 400
+    expect_json:
+      code: "EBB-100-022"
+  - action: rest
+    method: POST
+    path: /api/v1/memory/remember
+    auth: ebb_test_alice_key
+    headers:
+      Idempotency-Key: "idem-key-001"
+    json:
+      content: "Different payload with same key"
+      tier: semantic
+    expect_status: 422
+    expect_json:
+      code: "EBB-100-024"
+  - action: set_in_flight
+    idempotency_key: "idem-key-inflight"
+    active: true
+  - action: rest
+    method: POST
+    path: /api/v1/memory/remember
+    auth: ebb_test_alice_key
+    headers:
+      Idempotency-Key: "idem-key-inflight"
+    json:
+      content: "In flight test"
+    expect_status: 409
+    expect_headers:
+      Retry-After: "1"
+    expect_json:
+      code: "EBB-700-023"

@@ -1,0 +1,83 @@
+id: ic1.forget_vs_purge
+title: Soft forget tombstones memory while admin-only purge physically erases and returns 15 fields
+ic1_section: "5.1"
+modes:
+  - mock
+  - live
+steps:
+  - action: rest
+    method: POST
+    path: /api/v1/memory/remember
+    auth: ebb_test_alice_key
+    headers:
+      Idempotency-Key: "forget-purge-key-1"
+    json:
+      content: "Ephemeral secret candidate to forget and purge"
+      tier: semantic
+      namespace: "acme:u:alice"
+    expect_status: 201
+    save_as: mem
+  - action: rest
+    method: DELETE
+    path: "/api/v1/memory/${mem.id}"
+    auth: ebb_test_alice_key
+    query:
+      namespace: "acme:u:alice"
+    expect_status: 200
+    expect_json:
+      status: "forgotten"
+      tombstoned: true
+  - action: rest
+    method: POST
+    path: /api/v1/memory/recall
+    auth: ebb_test_alice_key
+    json:
+      query: "Ephemeral secret"
+      namespace: "acme:u:alice"
+    expect_status: 200
+    expect_json:
+      count: 0
+  - action: rest
+    method: GET
+    path: /api/v1/memory/status
+    auth: ebb_test_alice_key
+    headers:
+      X-Ebb-Namespace: "acme:u:alice"
+    expect_status: 200
+    expect_json:
+      active_count: 0
+      tombstoned_count: 1
+  - action: rest
+    method: DELETE
+    path: "/api/v1/memory/${mem.id}/purge"
+    auth: ebb_test_alice_key
+    query:
+      namespace: "acme:u:alice"
+    expect_status: 403
+  - action: rest
+    method: DELETE
+    path: "/api/v1/memory/${mem.id}/purge"
+    auth: ebb_test_admin_key
+    query:
+      namespace: "acme:u:alice"
+    expect_status: 200
+    expect_field_count: 15
+    expect_absent_keys:
+      - physical
+    expect_json:
+      memory_id: "${mem.id}"
+      status: "purged"
+      irreversible: true
+  - action: rest
+    method: POST
+    path: /api/v1/memory/remember
+    auth: ebb_test_alice_key
+    headers:
+      Idempotency-Key: "forget-purge-key-1"
+    json:
+      content: "Ephemeral secret candidate to forget and purge"
+      tier: semantic
+      namespace: "acme:u:alice"
+    expect_status: 410
+    expect_json:
+      code: "EBB-100-025"

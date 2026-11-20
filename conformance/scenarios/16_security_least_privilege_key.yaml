@@ -1,0 +1,46 @@
+id: ic1.security.least_privilege_key_scope
+title: Least-privilege key scoping blocks readonly writes, non-admin purge, and cross-tenant headers
+ic1_section: "7.2"
+modes:
+  - mock
+  - live
+steps:
+  - action: rest
+    method: POST
+    path: /api/v1/memory/remember
+    auth: ebb_test_alice_key
+    json:
+      content: "Scoped memory item"
+      tier: semantic
+    expect_status: 201
+    save_as: mem
+  - action: rest
+    method: POST
+    path: /api/v1/memory/remember
+    auth: ebb_test_readonly_key
+    json:
+      content: "Readonly key should not write"
+    expect_status: 403
+    expect_json:
+      detail: "forbidden_key_scope"
+  - action: rest
+    method: GET
+    path: "/api/v1/memory/${mem.id}"
+    auth: ebb_test_readonly_key
+    expect_status: 200
+  - action: rest
+    method: DELETE
+    path: "/api/v1/memory/${mem.id}/purge"
+    auth: ebb_test_alice_key
+    expect_status: 403
+    expect_json:
+      detail: "admin_required"
+  - action: rest
+    method: GET
+    path: /api/v1/memory/status
+    auth: ebb_test_alice_key
+    headers:
+      X-Tenant-ID: "other"
+    expect_status: 403
+    expect_json:
+      detail: "forbidden_tenant"

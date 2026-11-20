@@ -1,0 +1,88 @@
+id: ic1.reinforce.bounds_and_tiers
+title: Reinforce validates delta [-1.0, 1.0] and applies per-tier clamping
+ic1_section: "4.4"
+modes:
+  - mock
+  - live
+steps:
+  - action: rest
+    method: POST
+    path: /api/v1/memory/remember
+    auth: ebb_test_alice_key
+    json:
+      content: "Working tier memory"
+      tier: working
+    expect_status: 201
+    save_as: w_mem
+  - action: rest
+    method: POST
+    path: /api/v1/memory/remember
+    auth: ebb_test_alice_key
+    json:
+      content: "Episodic tier memory"
+      tier: episodic
+    expect_status: 201
+    save_as: e_mem
+  - action: rest
+    method: POST
+    path: /api/v1/memory/remember
+    auth: ebb_test_alice_key
+    json:
+      content: "Procedural tier memory"
+      tier: procedural
+    expect_status: 201
+    save_as: p_mem
+  - action: rest
+    method: POST
+    path: /api/v1/memory/reinforce
+    auth: ebb_test_alice_key
+    json:
+      memory_id: "${e_mem.id}"
+      delta: 1.5
+    expect_status: 422
+    expect_json:
+      detail: "delta_out_of_bounds"
+  - action: rest
+    method: POST
+    path: /api/v1/memory/reinforce
+    auth: ebb_test_alice_key
+    json:
+      memory_id: "${w_mem.id}"
+      delta: 0.8
+    expect_status: 200
+    expect_json:
+      outcome: "counted"
+      storage_strength: 1.0
+  - action: rest
+    method: POST
+    path: /api/v1/memory/reinforce
+    auth: ebb_test_alice_key
+    json:
+      memory_id: "${e_mem.id}"
+      delta: -0.5
+    expect_status: 200
+    expect_json:
+      outcome: "counted"
+      storage_strength: 1.0
+  - action: rest
+    method: POST
+    path: /api/v1/memory/reinforce
+    auth: ebb_test_alice_key
+    json:
+      memory_id: "${p_mem.id}"
+      delta: 0.9
+    expect_status: 200
+    expect_json:
+      outcome: "counted"
+      storage_strength: 1.1
+  - action: rest
+    method: POST
+    path: /api/v1/memory/reinforce
+    auth: ebb_test_alice_key
+    json:
+      memory_id: "${p_mem.id}"
+      delta: -0.5
+    expect_status: 200
+    expect_json:
+      outcome: "counted"
+      storage_strength: 1.05

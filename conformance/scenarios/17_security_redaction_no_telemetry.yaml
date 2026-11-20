@@ -1,0 +1,16 @@
+id: ic1.security.secret_redaction_and_no_telemetry
+title: Client redacts secrets before storage/logging and emits zero telemetry headers
+ic1_section: "7.3"
+modes:
+  - adapter-unit
+  - mock
+adapter_contract:
+  redact_secrets_before_remember: true
+  telemetry_enabled_default: false
+steps:
+  - action: client_check
+    operation: redact_and_no_telemetry
+  - action: assert_no_logged_credentials
+    forbidden_substrings:
+      - "ebb_test_alice_key"
+      - "secret_tok_123"

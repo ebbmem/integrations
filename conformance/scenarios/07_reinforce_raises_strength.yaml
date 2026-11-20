@@ -1,0 +1,63 @@
+id: ic1.reinforce.raises_strength_after_use
+title: Explicit post-use reinforce raises storage_strength and accepts used_ids
+ic1_section: "4.2"
+modes:
+  - mock
+  - live
+setup:
+  exposure_logging:
+    - "acme:u:alice"
+steps:
+  - action: rest
+    method: POST
+    path: /api/v1/memory/remember
+    auth: ebb_test_alice_key
+    json:
+      content: "Primary architecture preference: clean modular Python"
+      tier: semantic
+    expect_status: 201
+    save_as: m1
+  - action: rest
+    method: POST
+    path: /api/v1/memory/remember
+    auth: ebb_test_alice_key
+    json:
+      content: "Secondary preference: strict type annotations in Python"
+      tier: semantic
+    expect_status: 201
+    save_as: m2
+  - action: rest
+    method: POST
+    path: /api/v1/memory/recall
+    auth: ebb_test_alice_key
+    json:
+      query: "Python preference"
+    expect_status: 200
+    save_as: rec
+  - action: rest
+    method: POST
+    path: /api/v1/memory/reinforce
+    auth: ebb_test_alice_key
+    json:
+      memory_id: "${m1.id}"
+      delta: 0.4
+      used_ids:
+        - "${m2.id}"
+      recall_id: "${rec.recall_id}"
+    expect_status: 200
+    expect_json:
+      status: "reinforced"
+      outcome: "counted"
+      storage_strength: 1.4
+  - action: assert_memory_state
+    namespace: "acme:u:alice"
+    memory_id: "${m1.id}"
+    expect:
+      storage_strength: 1.4
+      reinforce_count: 1
+  - action: assert_memory_state
+    namespace: "acme:u:alice"
+    memory_id: "${m2.id}"
+    expect:
+      storage_strength: 1.4
+      reinforce_count: 1

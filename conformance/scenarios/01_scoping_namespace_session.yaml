@@ -1,0 +1,63 @@
+id: ic1.scoping.namespace_and_session_mapping
+title: Namespace and session_id scoping isolation
+ic1_section: "2.1"
+modes:
+  - mock
+  - adapter-unit
+adapter_contract:
+  requires_session_id_forwarding: true
+  requires_namespace_header_or_body: true
+steps:
+  - action: rest
+    method: POST
+    path: /api/v1/memory/remember
+    auth: ebb_test_alice_key
+    headers:
+      X-Ebb-Namespace: "acme:u:alice"
+    json:
+      content: "Alice prefers dark mode in session one"
+      tier: semantic
+      session_id: "sess-1"
+    expect_status: 201
+    expect_json:
+      namespace: "acme:u:alice"
+      session_id: "sess-1"
+    save_as: m1
+  - action: rest
+    method: POST
+    path: /api/v1/memory/remember
+    auth: ebb_test_alice_key
+    headers:
+      X-Ebb-Namespace: "acme:u:alice"
+    json:
+      content: "Alice prefers dark mode in session two"
+      tier: semantic
+      session_id: "sess-2"
+    expect_status: 201
+    save_as: m2
+  - action: rest
+    method: POST
+    path: /api/v1/memory/recall
+    auth: ebb_test_alice_key
+    headers:
+      X-Ebb-Namespace: "acme:u:alice"
+    json:
+      query: "dark mode"
+      session_id: "sess-1"
+    expect_status: 200
+    expect_json:
+      count: 1
+      results:
+        - id: "${m1.id}"
+          session_id: "sess-1"
+  - action: rest
+    method: POST
+    path: /api/v1/memory/recall
+    auth: ebb_test_bob_key
+    headers:
+      X-Ebb-Namespace: "other:u:bob"
+    json:
+      query: "dark mode"
+    expect_status: 200
+    expect_json:
+      count: 0

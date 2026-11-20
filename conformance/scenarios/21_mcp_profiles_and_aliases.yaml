@@ -1,0 +1,169 @@
+id: ic1.mcp.profiles_and_aliases
+title: MCP v2 core/full/admin profiles, non-admin gating (-32003), and universal memory_search/memory_get aliases
+ic1_section: "9.2"
+modes:
+  - mock
+  - live
+steps:
+  - action: mcp
+    path: /mcp/core
+    auth: ebb_test_alice_key
+    body:
+      jsonrpc: "2.0"
+      id: 1
+      method: tools/list
+    expect_status: 200
+    expect_tool_names:
+      - memory_remember
+      - memory_recall
+      - memory_reinforce
+      - memory_forget
+      - memory_context_pack
+      - memory_status
+  - action: mcp
+    path: /mcp/full
+    auth: ebb_test_alice_key
+    body:
+      jsonrpc: "2.0"
+      id: 2
+      method: tools/list
+    expect_status: 200
+    expect_tool_names:
+      - memory_remember
+      - memory_recall
+      - memory_reinforce
+      - memory_forget
+      - memory_context_pack
+      - memory_status
+      - memory_associate
+      - memory_why_not
+      - memory_introspect
+      - memory_episodic_remember
+      - memory_episodic_tail
+      - memory_federated_recall
+      - memory_rehearse
+      - memory_search
+      - memory_get
+  - action: mcp
+    path: /mcp/admin
+    auth: ebb_test_admin_key
+    body:
+      jsonrpc: "2.0"
+      id: 3
+      method: tools/list
+    expect_status: 200
+    expect_tool_names:
+      - memory_remember
+      - memory_recall
+      - memory_reinforce
+      - memory_forget
+      - memory_context_pack
+      - memory_status
+      - memory_associate
+      - memory_why_not
+      - memory_introspect
+      - memory_episodic_remember
+      - memory_episodic_tail
+      - memory_federated_recall
+      - memory_rehearse
+      - memory_search
+      - memory_get
+      - memory_dream
+      - memory_reflect
+      - memory_purge
+  - action: mcp
+    path: /mcp/admin
+    auth: ebb_test_alice_key
+    body:
+      jsonrpc: "2.0"
+      id: 4
+      method: tools/list
+    expect_status: 200
+    expect_tool_names:
+      - memory_remember
+      - memory_recall
+      - memory_reinforce
+      - memory_forget
+      - memory_context_pack
+      - memory_status
+      - memory_associate
+      - memory_why_not
+      - memory_introspect
+      - memory_episodic_remember
+      - memory_episodic_tail
+      - memory_federated_recall
+      - memory_rehearse
+      - memory_search
+      - memory_get
+  - action: mcp
+    path: /mcp/admin
+    auth: ebb_test_alice_key
+    body:
+      jsonrpc: "2.0"
+      id: 5
+      method: tools/call
+      params:
+        name: memory_purge
+        arguments:
+          memory_id: "non-existent"
+    expect_status: 403
+    expect_jsonrpc_error: -32003
+  - action: mcp
+    path: /mcp/core
+    auth: ebb_test_alice_key
+    headers:
+      X-Ebb-MCP-Profile: "full"
+    body:
+      jsonrpc: "2.0"
+      id: 6
+      method: tools/list
+    expect_status: 400
+  - action: mcp
+    path: /mcp/core
+    auth: ebb_test_alice_key
+    body:
+      jsonrpc: "2.0"
+      id: 7
+      method: tools/call
+      params:
+        name: memory_remember
+        arguments:
+          content: "Alias lookup verification item"
+          tier: semantic
+    expect_status: 200
+    save_as: created
+  - action: mcp
+    path: /mcp/core
+    auth: ebb_test_alice_key
+    body:
+      jsonrpc: "2.0"
+      id: 8
+      method: tools/call
+      params:
+        name: memory_search
+        arguments:
+          query: "Alias lookup"
+    expect_status: 200
+    validate_output_schema_for: memory_search
+    expect_json:
+      result:
+        structuredContent:
+          count: 1
+  - action: mcp
+    path: /mcp/core
+    auth: ebb_test_alice_key
+    body:
+      jsonrpc: "2.0"
+      id: 9
+      method: tools/call
+      params:
+        name: memory_get
+        arguments:
+          memory_id: "${created.result.structuredContent.id}"
+    expect_status: 200
+    validate_output_schema_for: memory_get
+    expect_json:
+      result:
+        structuredContent:
+          id: "${created.result.structuredContent.id}"
+          content: "Alias lookup verification item"

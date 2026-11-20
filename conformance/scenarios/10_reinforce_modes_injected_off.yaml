@@ -1,0 +1,64 @@
+id: ic1.reinforce.modes_injected_off_by_default
+title: Adapter reinforce policy keeps injected (reinforce-all-shown) OFF by default
+ic1_section: "4.5"
+modes:
+  - adapter-unit
+  - mock
+adapter_contract:
+  injected_default: false
+  require_explicit_used_ids: true
+steps:
+  - action: rest
+    method: POST
+    path: /api/v1/memory/remember
+    auth: ebb_test_alice_key
+    json:
+      content: "Alpha configuration detail used in answer"
+      tier: semantic
+    expect_status: 201
+    save_as: m1
+  - action: rest
+    method: POST
+    path: /api/v1/memory/remember
+    auth: ebb_test_alice_key
+    json:
+      content: "Alpha unrelated detail shown but not used"
+      tier: semantic
+    expect_status: 201
+    save_as: m2
+  - action: rest
+    method: POST
+    path: /api/v1/memory/recall
+    auth: ebb_test_alice_key
+    json:
+      query: "Alpha detail"
+    expect_status: 200
+    expect_json:
+      count: 2
+  - action: client_check
+    operation: reinforce_injected_default_off
+    recalled_ids:
+      - "${m1.id}"
+      - "${m2.id}"
+    used_ids:
+      - "${m1.id}"
+  - action: rest
+    method: POST
+    path: /api/v1/memory/reinforce
+    auth: ebb_test_alice_key
+    json:
+      memory_id: "${m1.id}"
+      delta: 0.25
+    expect_status: 200
+    expect_json:
+      outcome: "counted"
+  - action: assert_memory_state
+    namespace: "acme:u:alice"
+    memory_id: "${m1.id}"
+    expect:
+      storage_strength: 1.25
+  - action: assert_memory_state
+    namespace: "acme:u:alice"
+    memory_id: "${m2.id}"
+    expect:
+      storage_strength: 1.0
