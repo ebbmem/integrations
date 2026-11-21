@@ -23,8 +23,8 @@ For background on cognitive memory architecture and evaluation concepts, see:
 | --- | --- |
 | `conformance/` | Language-neutral IC-1 conformance YAML scenarios, reference mock server, client helpers, CLI, and test suite |
 | `instructions/` | Canonical agent memory discipline (`CORE.md`) and wrappers for Agent Skills, `AGENTS.md`, Cursor, OpenClaw, and Claude Code |
-| `packages/python/` | Layout placeholder for upcoming Python core & framework adapters |
-| `packages/typescript/` | Layout placeholder for upcoming TypeScript core & framework adapters |
+| `packages/python/` | Python `ebbmem-integration-core` package (scoping, redaction/framing, fail-open/retry, reinforcement tracking, SDK adapter) |
+| `packages/typescript/` | TypeScript `ebbmem-integration-core` package (scoping, redaction/framing, fail-open/retry, reinforcement tracking, SDK adapter) |
 
 ## Quickstart: Run Conformance Tests
 

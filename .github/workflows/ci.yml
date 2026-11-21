@@ -16,17 +16,42 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install conformance kit
-        run: python -m pip install --upgrade pip && pip install -e "./conformance[dev]"
+      - name: Install conformance kit and Python core
+        run: python -m pip install --upgrade pip && pip install -e "./conformance[dev]" -e "./packages/python[dev]"
 
       - name: Lint with ruff
-        run: ruff check conformance
+        run: ruff check conformance packages/python
 
       - name: Check formatting with ruff
-        run: ruff format --check conformance
+        run: ruff format --check conformance packages/python
 
       - name: Run pytest suite
-        run: pytest -v conformance/tests
+        run: pytest -v conformance/tests packages/python/tests
 
       - name: Run mock conformance CLI
         run: ebbmem-conformance --mode mock
+
+  typescript-core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install TypeScript devDependencies
+        working-directory: packages/typescript
+        run: npm install --no-package-lock
+
+      - name: Typecheck & build
+        working-directory: packages/typescript
+        run: npm run typecheck && npm run build
+
+      - name: Run TypeScript unit and IC-1 mock conformance tests
+        working-directory: packages/typescript
+        run: npm test

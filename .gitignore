@@ -5,6 +5,8 @@ __pycache__/
 .ruff_cache/
 dist/
 build/
+dist-test/
+*.tsbuildinfo
 *.egg-info/
 node_modules/
 .DS_Store
