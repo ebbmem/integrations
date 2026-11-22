@@ -1,6 +1,6 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.ebbmem/ebbmem",
+  "name": "ai.ebbmem/ebbmem",
   "title": "EbbMem",
   "description": "Cognitive memory for AI agents with decay, read-only recall, and explicit reinforcement.",
   "websiteUrl": "https://ebbmem.ai",
@@ -13,7 +13,7 @@
   "remotes": [
     {
       "type": "streamable-http",
-      "url": "https://ebbmem.example.com/mcp/{profile}",
+      "url": "https://ebbmem.ai/mcp/{profile}",
       "variables": {
         "profile": {
           "description": "MCP tool profile: core (6 tools, recommended), full (15 tools), or admin (18 tools, role-gated).",
