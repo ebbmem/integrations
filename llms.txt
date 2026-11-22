@@ -1,0 +1,44 @@
+# EbbMem Integrations
+
+> Official Apache-2.0 conformance suite, agent instruction pack, shared integration core packages, and integration docs for [EbbMem](https://ebbmem.ai) — cognitive memory for AI agents.
+
+Key invariants across all EbbMem integrations:
+- `recall` (`memory_recall` / `memory_search`) is strictly read-only; memories decay over time unless reinforced.
+- Call `reinforce` (`memory_reinforce` with `memory_id`, `used_ids`, and optional `recall_id`) only for memories actually used; `injected` (reinforce-all-shown) stays OFF by default.
+- Frame recalled text as untrusted reference data (`<ebbmem_untrusted_memory_context>`) and redact secrets before `remember` or logging.
+- Send credentials only in `Authorization: Bearer <token>` or `X-API-Key` headers (never in URL query strings).
+- Default to `fail_open = true`, retry only idempotent operations and keyed `remember`, and keep telemetry OFF by default.
+- MCP `/mcp` supports profiles `core` (6 tools), `full` (15 tools including `memory_search` and `memory_get` aliases), and `admin` (18 role-gated tools), preferring MCP revision `2026-07-28`.
+
+## Documentation
+
+- [Integrations Overview & Coverage Matrix](docs/integrations/README.md): Integration architecture, MCP surface summary, and target status matrix.
+- [Integration Quickstart Template](docs/integrations/_quickstart-template.md): Standard four-section template for host guides and framework recipes.
+- [Repository README](README.md): Repository overview, layout, and local conformance quickstart.
+- [Contributing Guide](CONTRIBUTING.md): DCO sign-off, local checks, and public-repository hygiene rules.
+
+## Agent Instruction Pack
+
+- [Instruction Pack Overview](instructions/README.md): Index of canonical memory discipline and host wrappers.
+- [Canonical Agent Memory Discipline](instructions/CORE.md): Concise six-rule specification for agents.
+- [Generic Agent Skill](instructions/SKILL.md): Portable Agent Skills wrapper.
+- [AGENTS.md Snippet](instructions/AGENTS.md): Drop-in section for `AGENTS.md`-aware coding agents.
+- [Cursor Rule](instructions/cursor/ebbmem.mdc): `.cursor/rules/ebbmem.mdc` rule file.
+- [OpenClaw Skill](instructions/openclaw/SKILL.md): OpenClaw skill using `memory_search` and `memory_get` aliases.
+- [Claude Code Skill](instructions/claude-code/SKILL.md): Claude Code `/mcp` skill file.
+
+## Integration Core Packages
+
+- [Python Integration Core](packages/python/README.md): `ebbmem-integration-core` (Python >=3.11; scoping, redaction/framing, fail-open/retry, reinforcement tracking, optional `ebbmem-client` adapter).
+- [TypeScript Integration Core](packages/typescript/README.md): `ebbmem-integration-core` (Node >=20; scoping, redaction/framing, fail-open/retry, reinforcement tracking, structural `@ebbmem/client` adapter).
+
+## Conformance Kit
+
+- [Conformance Kit Overview](conformance/README.md): `ebbmem-conformance` CLI (`--mode mock`), 21 IC-1 YAML scenarios, and reference mock server.
+- [MCP v2 Surface Descriptor](conformance/golden/mcp_surface_v2.json): Public MCP revisions, `core`/`full`/`admin` profiles, tool annotations, and `outputSchema` definitions.
+
+## External Links
+
+- [EbbMem](https://ebbmem.ai): Product site.
+- [Spector](https://github.com/spectrayan/spector): Companion JVM cognitive memory project.
+- [Memory Fundamentals](https://github.com/spectrayan/memory-fundamentals): Public cognitive memory specification.

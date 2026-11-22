@@ -17,14 +17,22 @@ For background on cognitive memory architecture and evaluation concepts, see:
 - [Spector](https://github.com/spectrayan/spector)
 - [Memory Fundamentals](https://github.com/spectrayan/memory-fundamentals)
 
+## Documentation
+
+- [Integrations Overview & Coverage Matrix](docs/integrations/README.md) — MCP surface overview, repository foundations, and target support status
+- [Integration Quickstart Template](docs/integrations/_quickstart-template.md) — standard four-section template for new host and framework guides
+- [llms.txt](llms.txt) — concise machine-readable index of public integration docs, packages, and conformance specs
+
 ## Repository Layout
 
 | Path | Purpose |
 | --- | --- |
 | `conformance/` | Language-neutral IC-1 conformance YAML scenarios, reference mock server, client helpers, CLI, and test suite |
+| `docs/integrations/` | Integrations overview, coverage matrix ([`README.md`](docs/integrations/README.md)), and quickstart template ([`_quickstart-template.md`](docs/integrations/_quickstart-template.md)) |
 | `instructions/` | Canonical agent memory discipline (`CORE.md`) and wrappers for Agent Skills, `AGENTS.md`, Cursor, OpenClaw, and Claude Code |
 | `packages/python/` | Python `ebbmem-integration-core` package (scoping, redaction/framing, fail-open/retry, reinforcement tracking, SDK adapter) |
 | `packages/typescript/` | TypeScript `ebbmem-integration-core` package (scoping, redaction/framing, fail-open/retry, reinforcement tracking, SDK adapter) |
+| `llms.txt` | Machine-readable repository index for LLMs and coding agents |
 
 ## Quickstart: Run Conformance Tests
 
