@@ -1,0 +1,20 @@
+{
+  "servers": {
+    "ebbmem": {
+      "type": "http",
+      "url": "https://ebbmem.example.com/mcp/core",
+      "headers": {
+        "X-API-Key": "${input:ebbmem_api_key}",
+        "X-Ebb-Namespace": "acme:u:alice"
+      }
+    }
+  },
+  "inputs": [
+    {
+      "type": "promptString",
+      "id": "ebbmem_api_key",
+      "description": "EbbMem API key (sent via X-API-Key header)",
+      "password": true
+    }
+  ]
+}
