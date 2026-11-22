@@ -1,0 +1,46 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.ebbmem/ebbmem",
+  "title": "EbbMem",
+  "description": "Cognitive memory for AI agents with decay, read-only recall, and explicit reinforcement.",
+  "websiteUrl": "https://ebbmem.ai",
+  "repository": {
+    "url": "https://github.com/ebbmem/integrations",
+    "source": "github",
+    "id": "1464834807"
+  },
+  "version": "0.1.0",
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://ebbmem.example.com/mcp/{profile}",
+      "variables": {
+        "profile": {
+          "description": "MCP tool profile: core (6 tools, recommended), full (15 tools), or admin (18 tools, role-gated).",
+          "default": "core",
+          "choices": [
+            "core",
+            "full",
+            "admin"
+          ],
+          "isRequired": true
+        }
+      },
+      "headers": [
+        {
+          "name": "X-API-Key",
+          "description": "API key for header-based authentication (omit when using OAuth 2.1 Bearer authentication; never pass credentials in URLs).",
+          "isRequired": false,
+          "isSecret": true,
+          "placeholder": "ebb_..."
+        },
+        {
+          "name": "X-Ebb-Namespace",
+          "description": "Optional target memory namespace override (omit to use the credential's default namespace).",
+          "isRequired": false,
+          "isSecret": false
+        }
+      ]
+    }
+  ]
+}
