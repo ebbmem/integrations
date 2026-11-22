@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "ebbmem-local",
+  "version": "0.1.0",
+  "description": "Local Claude Code marketplace for the EbbMem cognitive memory plugin.",
+  "owner": {
+    "name": "EbbMem",
+    "url": "https://ebbmem.ai"
+  },
+  "plugins": [
+    {
+      "name": "ebbmem",
+      "source": "./",
+      "description": "EbbMem cognitive memory MCP server, skill, and SessionStart/Stop lifecycle hooks.",
+      "version": "0.1.0",
+      "author": {
+        "name": "EbbMem",
+        "url": "https://ebbmem.ai"
+      },
+      "homepage": "https://ebbmem.ai",
+      "repository": "https://github.com/ebbmem/integrations",
+      "license": "Apache-2.0",
+      "keywords": [
+        "memory",
+        "mcp",
+        "ebbmem"
+      ]
+    }
+  ]
+}

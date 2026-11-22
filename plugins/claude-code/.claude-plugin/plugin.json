@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "ebbmem",
+  "version": "0.1.0",
+  "description": "EbbMem cognitive memory plugin for Claude Code: remote MCP tools (/mcp/core), memory discipline skill, and zero-telemetry SessionStart recall / Stop capture-and-reinforce hooks.",
+  "author": {
+    "name": "EbbMem",
+    "url": "https://ebbmem.ai"
+  },
+  "homepage": "https://ebbmem.ai",
+  "repository": "https://github.com/ebbmem/integrations",
+  "license": "Apache-2.0",
+  "keywords": [
+    "memory",
+    "cognitive-memory",
+    "mcp",
+    "ebbmem",
+    "reinforcement"
+  ],
+  "skills": "./skills/",
+  "hooks": "./hooks/hooks.json",
+  "mcpServers": "./.mcp.json"
+}

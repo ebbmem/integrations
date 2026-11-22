@@ -1,0 +1,28 @@
+{
+  "description": "EbbMem cognitive memory lifecycle hooks: read-only recall on SessionStart, secret-redacted capture and used-memory reinforcement on Stop. Zero telemetry.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi; exec \"$PY\" \"${CLAUDE_PLUGIN_ROOT}/hooks/ebbmem_hook.py\" session-start'",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'if command -v python3 >/dev/null 2>&1; then PY=python3; else PY=python; fi; exec \"$PY\" \"${CLAUDE_PLUGIN_ROOT}/hooks/ebbmem_hook.py\" stop'",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

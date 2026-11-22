@@ -1,0 +1,24 @@
+{
+  "name": "ebbmem",
+  "displayName": "EbbMem Cognitive Memory",
+  "description": "Cognitive memory plugin for Cursor: remote Streamable HTTP MCP server (/mcp/core), AlwaysApply memory discipline rule, and agent skill.",
+  "version": "0.1.0",
+  "author": {
+    "name": "EbbMem"
+  },
+  "publisher": "EbbMem",
+  "homepage": "https://ebbmem.ai",
+  "repository": "https://github.com/ebbmem/integrations",
+  "license": "Apache-2.0",
+  "keywords": [
+    "memory",
+    "cognitive-memory",
+    "mcp",
+    "ebbmem",
+    "reinforcement"
+  ],
+  "category": "Developer Tools",
+  "rules": "./rules/ebbmem.mdc",
+  "skills": "./skills/ebbmem-memory/SKILL.md",
+  "mcpServers": "./.mcp.json"
+}
