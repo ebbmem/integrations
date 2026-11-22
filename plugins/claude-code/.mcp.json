@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "ebbmem": {
+      "type": "http",
+      "url": "${EBBMEM_MCP_URL:-https://ebbmem.example.com/mcp/core}",
+      "headers": {
+        "Authorization": "Bearer ${EBBMEM_API_KEY}",
+        "X-Ebb-Namespace": "${EBBMEM_NAMESPACE:-acme:u:default}"
+      }
+    }
+  }
+}

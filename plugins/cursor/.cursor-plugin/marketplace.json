@@ -1,0 +1,16 @@
+{
+  "name": "ebbmem-cursor-plugins",
+  "owner": {
+    "name": "EbbMem"
+  },
+  "metadata": {
+    "description": "Local Cursor plugin marketplace catalog for EbbMem cognitive memory."
+  },
+  "plugins": [
+    {
+      "name": "ebbmem",
+      "source": "./",
+      "description": "EbbMem remote MCP server (/mcp/core), cognitive memory rule (.mdc), and agent skill."
+    }
+  ]
+}
