@@ -1,0 +1,8 @@
+{
+  "servers": {
+    "ebbmem": {
+      "type": "http",
+      "url": "https://ebbmem.example.com/mcp/core"
+    }
+  }
+}

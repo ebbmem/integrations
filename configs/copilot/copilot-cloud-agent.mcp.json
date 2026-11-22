@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "ebbmem": {
+      "type": "http",
+      "url": "https://ebbmem.example.com/mcp/core",
+      "headers": {
+        "Authorization": "Bearer $COPILOT_MCP_EBBMEM_API_KEY",
+        "X-Ebb-Namespace": "acme:u:alice"
+      },
+      "tools": [
+        "memory_remember",
+        "memory_recall",
+        "memory_reinforce",
+        "memory_forget",
+        "memory_context_pack",
+        "memory_status"
+      ]
+    }
+  }
+}
