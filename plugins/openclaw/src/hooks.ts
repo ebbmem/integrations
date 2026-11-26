@@ -1,10 +1,9 @@
 import {
   frameRecalledMemories,
   makeIdempotencyKey,
-  redactSecrets,
 } from "ebbmem-integration-core";
 import { buildSetupGuidance, matchSetupPhrase } from "./cli.js";
-import { resolveScopeForContext } from "./config.js";
+import { redactPluginSecrets, resolveScopeForContext } from "./config.js";
 import {
   OpenClawAgentEndEvent,
   OpenClawBeforeAgentStartEvent,
@@ -70,15 +69,27 @@ function summarizeMessagesForFlush(messages: unknown[] | undefined): string {
 
 export function registerEbbmemHooks(
   api: OpenClawPluginApi,
-  runtime: EbbmemOpenClawRuntime,
+  runtimeOrGetter: EbbmemOpenClawRuntime | (() => EbbmemOpenClawRuntime),
 ): void {
+  const getRuntime =
+    typeof runtimeOrGetter === "function" ? runtimeOrGetter : () => runtimeOrGetter;
+
   api.on(
     "before_agent_start",
     async (
       event: OpenClawBeforeAgentStartEvent,
       ctx: OpenClawHookContext,
     ): Promise<OpenClawBeforeAgentStartResult | void> => {
+      const runtime = getRuntime();
       if (runtime.isClosed()) return;
+      runtime.clearTurnExposure({
+        agentId: ctx.agentId,
+        sessionKey: ctx.sessionKey,
+        sessionId: ctx.sessionId,
+        userId: ctx.userId,
+        namespace: ctx.namespace,
+      });
+
       const userText =
         (typeof event.userText === "string" && event.userText.trim()) ||
         (typeof event.prompt === "string" && event.prompt.trim()) ||
@@ -118,6 +129,7 @@ export function registerEbbmemHooks(
   api.on(
     "agent_end",
     async (event: OpenClawAgentEndEvent, ctx: OpenClawHookContext): Promise<void> => {
+      const runtime = getRuntime();
       if (runtime.isClosed() || event.success === false) {
         return;
       }
@@ -125,22 +137,22 @@ export function registerEbbmemHooks(
       const messages = event.messagesSnapshot ?? event.messages;
       const userText = findLatestByRole(messages, "user");
       const assistantText = findLatestByRole(messages, "assistant");
-      const scope = resolveScopeForContext(runtime.config, ctx);
 
       if (runtime.config.autoCapture && runtime.core && (userText || assistantText)) {
         if (!matchSetupPhrase(userText)) {
-          const parts: string[] = [];
-          if (userText) parts.push(`User: ${userText}`);
-          if (assistantText) parts.push(`Assistant: ${assistantText}`);
-          const formatted = parts.join("\n");
-          const turnKey = event.turnId ?? ctx.turnId ?? "latest";
-          const idempotencyKey = makeIdempotencyKey([
-            scope.namespace,
-            scope.sessionId ?? "",
-            turnKey,
-            formatted,
-          ]);
           try {
+            const scope = resolveScopeForContext(runtime.config, ctx);
+            const parts: string[] = [];
+            if (userText) parts.push(`User: ${userText}`);
+            if (assistantText) parts.push(`Assistant: ${assistantText}`);
+            const formatted = parts.join("\n");
+            const turnKey = event.turnId ?? ctx.turnId ?? "latest";
+            const idempotencyKey = makeIdempotencyKey([
+              scope.namespace,
+              scope.sessionId ?? "",
+              turnKey,
+              formatted,
+            ]);
             await runtime.remember(formatted, {
               tier: runtime.config.captureTier,
               tags: ["openclaw", "auto-capture"],
@@ -154,7 +166,7 @@ export function registerEbbmemHooks(
           } catch (err) {
             if (!runtime.config.failOpen) throw err;
             const msg = err instanceof Error ? err.message : String(err);
-            runtime.logger?.warn(`ebbmem auto-capture fail-open: ${redactSecrets(msg)}`);
+            runtime.logger?.warn(`ebbmem auto-capture fail-open: ${redactPluginSecrets(msg)}`);
           }
         }
       }
@@ -172,7 +184,7 @@ export function registerEbbmemHooks(
         } catch (err) {
           if (!runtime.config.failOpen) throw err;
           const msg = err instanceof Error ? err.message : String(err);
-          runtime.logger?.warn(`ebbmem auto-reinforce fail-open: ${redactSecrets(msg)}`);
+          runtime.logger?.warn(`ebbmem auto-reinforce fail-open: ${redactPluginSecrets(msg)}`);
         }
       }
     },
@@ -181,6 +193,7 @@ export function registerEbbmemHooks(
   api.on(
     "before_compaction",
     async (event: OpenClawBeforeCompactionEvent, ctx: OpenClawHookContext): Promise<void> => {
+      const runtime = getRuntime();
       if (runtime.isClosed() || !runtime.config.preCompactionFlush || !runtime.core) {
         return;
       }
@@ -194,15 +207,15 @@ export function registerEbbmemHooks(
         userId: ctx.userId,
         namespace: ctx.namespace,
       };
-      const scope = resolveScopeForContext(runtime.config, mergedCtx);
-      const idempotencyKey = makeIdempotencyKey([
-        scope.namespace,
-        scope.sessionId ?? "",
-        "before_compaction",
-        summary,
-      ]);
 
       try {
+        const scope = resolveScopeForContext(runtime.config, mergedCtx);
+        const idempotencyKey = makeIdempotencyKey([
+          scope.namespace,
+          scope.sessionId ?? "",
+          "before_compaction",
+          summary,
+        ]);
         await runtime.remember(summary, {
           tier: "episodic",
           tags: ["openclaw", "compaction-flush"],
@@ -212,7 +225,7 @@ export function registerEbbmemHooks(
       } catch (err) {
         if (!runtime.config.failOpen) throw err;
         const msg = err instanceof Error ? err.message : String(err);
-        runtime.logger?.warn(`ebbmem before_compaction fail-open: ${redactSecrets(msg)}`);
+        runtime.logger?.warn(`ebbmem before_compaction fail-open: ${redactPluginSecrets(msg)}`);
       }
     },
   );

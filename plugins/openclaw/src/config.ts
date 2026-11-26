@@ -7,11 +7,55 @@ import {
   TELEMETRY_ENABLED_DEFAULT,
   ValidationError,
   checkNamespaceConflict,
+  redactPayload,
+  redactSecrets,
   validateAuthCredentials,
   validateBaseUrl,
   validateDelta,
   validateNamespace,
 } from "ebbmem-integration-core";
+
+const AWS_ACCESS_KEY_ID_RE = /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g;
+const AWS_SECRET_ACCESS_KEY_RE =
+  /((?:["']?aws_secret_access_key["']?)\s*[:=]\s*)(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^\s,;&}"']+)/gi;
+const PLUGIN_SENSITIVE_KEY_NAMES: ReadonlySet<string> = new Set([
+  "aws_secret_access_key",
+  "aws_access_key_id",
+  "aws_session_token",
+]);
+
+export function redactPluginSecrets(text: string): string {
+  if (!text) return text;
+  let out = redactSecrets(text);
+  out = out.replace(AWS_ACCESS_KEY_ID_RE, "[REDACTED]");
+  out = out.replace(AWS_SECRET_ACCESS_KEY_RE, "$1[REDACTED]");
+  return out;
+}
+
+function redactPluginPayloadTree(value: unknown): unknown {
+  if (typeof value === "string") {
+    return redactPluginSecrets(value);
+  }
+  if (value === null || value === undefined || typeof value !== "object") {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => redactPluginPayloadTree(item));
+  }
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    if (PLUGIN_SENSITIVE_KEY_NAMES.has(k.toLowerCase()) && v !== null && v !== undefined) {
+      out[k] = "[REDACTED]";
+    } else {
+      out[k] = redactPluginPayloadTree(v);
+    }
+  }
+  return out;
+}
+
+export function redactPluginPayload(value: unknown): unknown {
+  return redactPluginPayloadTree(redactPayload(value));
+}
 
 export type MemoryTier = "working" | "episodic" | "semantic" | "procedural";
 

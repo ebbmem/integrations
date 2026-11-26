@@ -1,6 +1,6 @@
 import { Static, Type } from "typebox";
-import { NotFoundError, frameRecalledMemories, redactSecrets } from "ebbmem-integration-core";
-import { MemoryTier } from "./config.js";
+import { NotFoundError, frameRecalledMemories } from "ebbmem-integration-core";
+import { MemoryTier, redactPluginSecrets } from "./config.js";
 import {
   OpenClawPluginApi,
   OpenClawToolExecContext,
@@ -77,17 +77,21 @@ export type MemoryForgetParams = Static<typeof MemoryForgetParamsSchema> & {
 
 function toolError(err: unknown): OpenClawToolResult {
   const raw = err instanceof Error ? err.message : String(err);
+  const safe = redactPluginSecrets(raw);
   return {
-    content: [{ type: "text", text: redactSecrets(raw) }],
+    content: [{ type: "text", text: safe }],
     isError: true,
-    details: { error: redactSecrets(raw) },
+    details: { error: safe },
   };
 }
 
 export function registerEbbmemTools(
   api: OpenClawPluginApi,
-  runtime: EbbmemOpenClawRuntime,
+  runtimeOrGetter: EbbmemOpenClawRuntime | (() => EbbmemOpenClawRuntime),
 ): void {
+  const getRuntime =
+    typeof runtimeOrGetter === "function" ? runtimeOrGetter : () => runtimeOrGetter;
+
   api.registerTool(
     (execCtx?: OpenClawToolExecContext) => ({
       name: "memory_search",
@@ -97,6 +101,7 @@ export function registerEbbmemTools(
       parameters: MemorySearchParamsSchema,
       annotations: { readOnlyHint: true, idempotentHint: true },
       async execute(_toolCallId: string, params: MemorySearchParams, callCtx?: OpenClawToolExecContext) {
+        const runtime = getRuntime();
         const ctx = callCtx ?? execCtx;
         const explicitSession = params.session_id ?? params.sessionId;
         const res = await runtime.search({
@@ -144,6 +149,7 @@ export function registerEbbmemTools(
       parameters: MemoryGetParamsSchema,
       annotations: { readOnlyHint: true, idempotentHint: true },
       async execute(_toolCallId: string, params: MemoryGetParams, callCtx?: OpenClawToolExecContext) {
+        const runtime = getRuntime();
         const ctx = callCtx ?? execCtx;
         const targetId = params.memory_id ?? params.memoryId ?? params.path;
         if (!targetId || !targetId.trim()) {
@@ -209,6 +215,7 @@ export function registerEbbmemTools(
         params: MemoryRememberParams,
         callCtx?: OpenClawToolExecContext,
       ) {
+        const runtime = getRuntime();
         const ctx = callCtx ?? execCtx;
         try {
           const res = await runtime.remember(params.content, {
@@ -254,6 +261,7 @@ export function registerEbbmemTools(
         params: MemoryReinforceParams,
         callCtx?: OpenClawToolExecContext,
       ) {
+        const runtime = getRuntime();
         const ctx = callCtx ?? execCtx;
         try {
           const memoryId = params.memory_id ?? params.memoryId ?? "";
@@ -297,6 +305,7 @@ export function registerEbbmemTools(
         params: MemoryForgetParams,
         callCtx?: OpenClawToolExecContext,
       ) {
+        const runtime = getRuntime();
         const ctx = callCtx ?? execCtx;
         try {
           const memoryId = params.memory_id ?? params.memoryId ?? "";

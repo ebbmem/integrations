@@ -4,12 +4,13 @@ import {
   ReinforcePolicy,
   ScopingResolver,
   ValidationError,
-  redactSecrets,
 } from "ebbmem-integration-core";
 import {
   EbbmemOpenClawConfig,
   ResolvedOpenClawScope,
   ScopeResolutionInput,
+  redactPluginPayload,
+  redactPluginSecrets,
   resolveScopeForContext,
   resolveStrictAuthScope,
 } from "./config.js";
@@ -48,6 +49,36 @@ function nonEmptyString(value: unknown): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
+function ownProp(obj: Record<string, unknown> | undefined, key: string): unknown {
+  if (!obj || !Object.hasOwn(obj, key)) return undefined;
+  return obj[key];
+}
+
+function ownNonEmptyString(
+  obj: Record<string, unknown> | undefined,
+  key: string,
+): string | undefined {
+  return nonEmptyString(ownProp(obj, key));
+}
+
+function resolveUniqueOwnString(
+  candidates: ReadonlyArray<string | undefined>,
+): { conflict: boolean; value?: string } {
+  const distinct = new Set<string>();
+  for (const val of candidates) {
+    if (val !== undefined) {
+      distinct.add(val);
+    }
+  }
+  if (distinct.size > 1) {
+    return { conflict: true };
+  }
+  if (distinct.size === 1) {
+    return { conflict: false, value: distinct.values().next().value };
+  }
+  return { conflict: false, value: undefined };
+}
+
 function asPlainRecord(value: unknown): Record<string, unknown> | undefined {
   if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
   return value as Record<string, unknown>;
@@ -63,8 +94,8 @@ function sliceLines(content: string, from?: number, lines?: number): string {
 
 function extractMemoryId(hit: Record<string, unknown>): string {
   return (
-    nonEmptyString(hit.memory_id) ??
-    nonEmptyString(hit.id) ??
+    ownNonEmptyString(hit, "memory_id") ??
+    ownNonEmptyString(hit, "id") ??
     ""
   );
 }
@@ -124,9 +155,11 @@ export class EbbmemOpenClawRuntime {
     return this.closed;
   }
 
-  private sessionLookupKey(agentId?: string, sessionId?: string): string | null {
-    if (!agentId && !sessionId) return null;
-    return `${agentId ?? ""}\u0000${sessionId ?? ""}`;
+  private sessionLookupKey(scope: ResolvedOpenClawScope): string {
+    if (scope.agentId || scope.sessionId) {
+      return `${scope.agentId ?? ""}\u0000${scope.sessionId ?? ""}`;
+    }
+    return `__ns__\u0000${scope.namespace}`;
   }
 
   private recordTurnExposure(
@@ -135,8 +168,7 @@ export class EbbmemOpenClawRuntime {
     recallId: string | undefined,
     recalledIds: string[],
   ): void {
-    const key = this.sessionLookupKey(scope.agentId, scope.sessionId);
-    if (!key) return;
+    const key = this.sessionLookupKey(scope);
     if (this.turnExposures.has(key)) {
       this.turnExposures.delete(key);
     }
@@ -153,10 +185,21 @@ export class EbbmemOpenClawRuntime {
     }
   }
 
+  clearTurnExposure(ctx: ScopeResolutionInput = {}): void {
+    try {
+      const scope = resolveScopeForContext(this.config, ctx);
+      const key = this.sessionLookupKey(scope);
+      this.turnExposures.delete(key);
+    } catch (err) {
+      if (!this.config.failOpen) {
+        throw err;
+      }
+    }
+  }
+
   getActiveExposure(ctx: ScopeResolutionInput = {}): TurnExposureRecord | undefined {
     const scope = resolveScopeForContext(this.config, ctx);
-    const key = this.sessionLookupKey(scope.agentId, scope.sessionId);
-    if (!key) return undefined;
+    const key = this.sessionLookupKey(scope);
     return this.turnExposures.get(key);
   }
 
@@ -172,40 +215,59 @@ export class EbbmemOpenClawRuntime {
 
     const authorized: MemorySearchHit[] = [];
     for (const hit of hits) {
-      if (!hit || typeof hit !== "object") continue;
-      const provenance = asPlainRecord(hit.provenance);
-      const metadata = asPlainRecord(hit.metadata);
+      if (!hit || typeof hit !== "object" || Array.isArray(hit)) continue;
+      const hitRec = hit as unknown as Record<string, unknown>;
+      const provenance = asPlainRecord(ownProp(hitRec, "provenance"));
+      const metadata = asPlainRecord(ownProp(hitRec, "metadata"));
 
-      const hitNs =
-        nonEmptyString(hit.namespace) ??
-        nonEmptyString(provenance?.namespace) ??
-        nonEmptyString(metadata?.namespace);
-      if (!hitNs || hitNs !== scope.namespace) {
+      const nsRes = resolveUniqueOwnString([
+        ownNonEmptyString(hitRec, "namespace"),
+        ownNonEmptyString(provenance, "namespace"),
+        ownNonEmptyString(metadata, "namespace"),
+      ]);
+      if (nsRes.conflict || !nsRes.value || nsRes.value !== scope.namespace) {
         continue;
       }
+      const hitNs = nsRes.value;
 
-      const hitAgent =
-        nonEmptyString(hit.agent_id) ??
-        nonEmptyString(hit.agentId) ??
-        nonEmptyString(metadata?.agent_id) ??
-        nonEmptyString(provenance?.agent_id);
+      const agentRes = resolveUniqueOwnString([
+        ownNonEmptyString(hitRec, "agent_id"),
+        ownNonEmptyString(hitRec, "agentId"),
+        ownNonEmptyString(metadata, "agent_id"),
+        ownNonEmptyString(metadata, "agentId"),
+        ownNonEmptyString(provenance, "agent_id"),
+        ownNonEmptyString(provenance, "agentId"),
+      ]);
+      if (agentRes.conflict) {
+        continue;
+      }
+      const hitAgent = agentRes.value;
       if (hitAgent !== undefined) {
         if (!scope.agentId || hitAgent !== scope.agentId) {
           continue;
         }
       }
 
-      const hitSession =
-        nonEmptyString(hit.session_id) ??
-        nonEmptyString(hit.sessionId) ??
-        nonEmptyString(metadata?.session_id) ??
-        nonEmptyString(provenance?.session_id);
+      const sessionRes = resolveUniqueOwnString([
+        ownNonEmptyString(hitRec, "session_id"),
+        ownNonEmptyString(hitRec, "sessionId"),
+        ownNonEmptyString(metadata, "session_id"),
+        ownNonEmptyString(metadata, "sessionId"),
+        ownNonEmptyString(provenance, "session_id"),
+        ownNonEmptyString(provenance, "sessionId"),
+      ]);
+      if (sessionRes.conflict) {
+        continue;
+      }
+      const hitSession = sessionRes.value;
 
+      const hitTier = ownNonEmptyString(hitRec, "tier");
+      const metaSessionScoped = ownProp(metadata, "session_scoped") === true;
       const mustMatchSession = Boolean(
         context.requireSessionMatch ||
           context.sessionScopedOnly ||
-          hit.tier === "working" ||
-          metadata?.session_scoped === true,
+          hitTier === "working" ||
+          metaSessionScoped,
       );
 
       if (mustMatchSession) {
@@ -214,10 +276,12 @@ export class EbbmemOpenClawRuntime {
         }
       }
 
+      const rawId = ownNonEmptyString(hitRec, "id");
+      const rawMemId = ownNonEmptyString(hitRec, "memory_id");
       authorized.push({
         ...hit,
-        id: hit.id || hit.memory_id || "",
-        memory_id: hit.memory_id || hit.id || "",
+        id: rawId || rawMemId || "",
+        memory_id: rawMemId || rawId || "",
         namespace: hitNs,
         ...(hitSession !== undefined ? { session_id: hitSession } : {}),
         ...(hitAgent !== undefined ? { agent_id: hitAgent } : {}),
@@ -255,14 +319,14 @@ export class EbbmemOpenClawRuntime {
       );
     }
 
-    const scope = resolveScopeForContext(this.config, params);
-    this.turnSeq += 1;
-    const turnId = params.turnId ?? `openclaw-turn-${this.turnSeq}`;
-    const serverSessionFilter =
-      params.explicitSessionFilter ??
-      (params.requireSessionMatch ? scope.sessionId : undefined);
-
     try {
+      const scope = resolveScopeForContext(this.config, params);
+      this.turnSeq += 1;
+      const turnId = params.turnId ?? `openclaw-turn-${this.turnSeq}`;
+      const serverSessionFilter =
+        params.explicitSessionFilter ??
+        (params.requireSessionMatch ? scope.sessionId : undefined);
+
       const resp = await this.core.recall(params.query, {
         appNamespace: scope.namespace,
         limit: params.limit ?? this.config.recallLimit,
@@ -282,42 +346,44 @@ export class EbbmemOpenClawRuntime {
       const respNamespace = nonEmptyString(resp.namespace);
 
       const mapped: MemorySearchHit[] = rawResults.map((item) => {
-        const provenance = asPlainRecord(item.provenance);
-        const metadata = asPlainRecord(item.metadata);
+        const provenance = asPlainRecord(ownProp(item, "provenance"));
+        const metadata = asPlainRecord(ownProp(item, "metadata"));
         const id = extractMemoryId(item);
-        const ns =
-          nonEmptyString(item.namespace) ??
-          nonEmptyString(provenance?.namespace) ??
-          nonEmptyString(metadata?.namespace) ??
-          respNamespace;
-        const hitSession =
-          nonEmptyString(item.session_id) ?? nonEmptyString(provenance?.session_id);
-        const hitAgent =
-          nonEmptyString(item.agent_id) ??
-          nonEmptyString(metadata?.agent_id) ??
-          nonEmptyString(provenance?.agent_id);
+        const itemNs = ownNonEmptyString(item, "namespace");
+        const hasNestedNs =
+          ownNonEmptyString(provenance, "namespace") !== undefined ||
+          ownNonEmptyString(metadata, "namespace") !== undefined;
+        const ns = itemNs ?? (hasNestedNs ? undefined : respNamespace);
+        const rawSession = ownNonEmptyString(item, "session_id");
+        const rawSessionCamel = ownNonEmptyString(item, "sessionId");
+        const rawAgent = ownNonEmptyString(item, "agent_id");
+        const rawAgentCamel = ownNonEmptyString(item, "agentId");
+        const rawContent = ownProp(item, "content");
         return {
           id,
           memory_id: id,
-          content: typeof item.content === "string" ? item.content : String(item.content ?? ""),
-          tier: nonEmptyString(item.tier),
-          namespace: ns,
-          session_id: hitSession,
-          agent_id: hitAgent,
+          content: typeof rawContent === "string" ? rawContent : String(rawContent ?? ""),
+          tier: ownNonEmptyString(item, "tier"),
+          ...(ns !== undefined ? { namespace: ns } : {}),
+          ...(rawSession !== undefined ? { session_id: rawSession } : {}),
+          ...(rawSessionCamel !== undefined ? { sessionId: rawSessionCamel } : {}),
+          ...(rawAgent !== undefined ? { agent_id: rawAgent } : {}),
+          ...(rawAgentCamel !== undefined ? { agentId: rawAgentCamel } : {}),
           score: typeof item.score === "number" ? item.score : undefined,
           tags: Array.isArray(item.tags) ? (item.tags as string[]) : undefined,
           metadata,
           provenance,
-          snippet: typeof item.content === "string" ? item.content : undefined,
+          snippet: typeof rawContent === "string" ? rawContent : undefined,
           source: "ebbmem",
         };
       });
 
       const authorized = this.authorizeSearchHits(mapped, {
-        agentId: scope.agentId,
-        sessionId: scope.sessionId,
-        userId: scope.userId,
-        namespace: scope.namespace,
+        agentId: params.agentId,
+        sessionKey: params.sessionKey,
+        sessionId: params.sessionId,
+        userId: params.userId,
+        namespace: params.namespace ?? (scope.hasExplicitIdentity ? scope.namespace : undefined),
         requireSessionMatch: params.requireSessionMatch,
       });
 
@@ -340,6 +406,8 @@ export class EbbmemOpenClawRuntime {
       const recalledIds = authorized.map((h) => h.memory_id || h.id).filter(Boolean);
       if (recalledIds.length > 0) {
         this.recordTurnExposure(scope, turnId, recallId, recalledIds);
+      } else {
+        this.turnExposures.delete(this.sessionLookupKey(scope));
       }
 
       return {
@@ -352,7 +420,7 @@ export class EbbmemOpenClawRuntime {
     } catch (err) {
       if (this.config.failOpen) {
         const msg = err instanceof Error ? err.message : String(err);
-        this.logger?.warn(`ebbmem search fail-open: ${redactSecrets(msg)}`);
+        this.logger?.warn(`ebbmem search fail-open: ${redactPluginSecrets(msg)}`);
         return { query: params.query, count: 0, degraded: true, results: [] };
       }
       throw err;
@@ -378,22 +446,38 @@ export class EbbmemOpenClawRuntime {
       appNamespace: scope.namespace,
     });
 
+    const recObj = asPlainRecord(record) ?? {};
+    const metadata = asPlainRecord(ownProp(recObj, "metadata"));
+    const provenance = asPlainRecord(ownProp(recObj, "provenance"));
+    const memId = extractMemoryId(recObj) || params.memoryId;
+    const rawContent = ownProp(recObj, "content");
+    const contentStr = typeof rawContent === "string" ? rawContent : String(rawContent ?? "");
+    const rawNs = ownNonEmptyString(recObj, "namespace");
+    const rawSession = ownNonEmptyString(recObj, "session_id");
+    const rawSessionCamel = ownNonEmptyString(recObj, "sessionId");
+    const rawAgent = ownNonEmptyString(recObj, "agent_id");
+    const rawAgentCamel = ownNonEmptyString(recObj, "agentId");
+
     const hitCandidate: MemorySearchHit = {
-      id: extractMemoryId(record) || params.memoryId,
-      memory_id: extractMemoryId(record) || params.memoryId,
-      content: typeof record.content === "string" ? record.content : String(record.content ?? ""),
-      tier: nonEmptyString(record.tier),
-      namespace: nonEmptyString(record.namespace),
-      session_id: nonEmptyString(record.session_id),
-      metadata: asPlainRecord(record.metadata),
-      provenance: asPlainRecord(record.provenance),
+      id: ownNonEmptyString(recObj, "id") ?? memId,
+      memory_id: memId,
+      content: contentStr,
+      tier: ownNonEmptyString(recObj, "tier"),
+      ...(rawNs !== undefined ? { namespace: rawNs } : {}),
+      ...(rawSession !== undefined ? { session_id: rawSession } : {}),
+      ...(rawSessionCamel !== undefined ? { sessionId: rawSessionCamel } : {}),
+      ...(rawAgent !== undefined ? { agent_id: rawAgent } : {}),
+      ...(rawAgentCamel !== undefined ? { agentId: rawAgentCamel } : {}),
+      metadata,
+      provenance,
     };
 
     const authorized = this.authorizeSearchHits([hitCandidate], {
-      agentId: scope.agentId,
-      sessionId: scope.sessionId,
-      userId: scope.userId,
-      namespace: scope.namespace,
+      agentId: params.agentId,
+      sessionKey: params.sessionKey,
+      sessionId: params.sessionId,
+      userId: params.userId,
+      namespace: params.namespace ?? (scope.hasExplicitIdentity ? scope.namespace : undefined),
     });
     if (authorized.length === 0) {
       return null;
@@ -434,15 +518,27 @@ export class EbbmemOpenClawRuntime {
       metadata.agent_id = scope.agentId;
     }
 
-    return this.core.remember(content, {
+    const effectiveContent = this.config.redactBeforeRemember
+      ? redactPluginSecrets(content)
+      : content;
+    const effectiveTags =
+      this.config.redactBeforeRemember && opts.tags
+        ? opts.tags.map((t) => redactPluginSecrets(t))
+        : opts.tags;
+    const effectiveMetadata =
+      this.config.redactBeforeRemember && Object.keys(metadata).length > 0
+        ? (redactPluginPayload(metadata) as Record<string, unknown>)
+        : metadata;
+
+    return this.core.remember(effectiveContent, {
       tier: opts.tier ?? this.config.captureTier,
       appNamespace: scope.namespace,
       sessionId: scope.sessionId,
       agentId: scope.agentId,
-      tags: opts.tags,
+      tags: effectiveTags,
       domain: opts.domain,
       importance: opts.importance,
-      metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
+      metadata: Object.keys(effectiveMetadata).length > 0 ? effectiveMetadata : undefined,
       idempotencyKey: opts.idempotencyKey,
     });
   }
@@ -477,6 +573,8 @@ export class EbbmemOpenClawRuntime {
     responseText?: string;
     usedIds?: readonly string[];
     injected?: boolean;
+    turnId?: string;
+    recallId?: string;
     agentId?: string;
     sessionKey?: string;
     sessionId?: string;
@@ -485,22 +583,22 @@ export class EbbmemOpenClawRuntime {
   }): Promise<Record<string, unknown> | undefined> {
     if (this.closed || !this.core) return undefined;
     const scope = resolveScopeForContext(this.config, params);
-    const key = this.sessionLookupKey(scope.agentId, scope.sessionId);
-    const active = key ? this.turnExposures.get(key) : undefined;
-    const result = await this.core.reinforceFromExposure({
+    const key = this.sessionLookupKey(scope);
+    const active = this.turnExposures.get(key);
+    if (!active && !params.usedIds?.length && !params.turnId && !params.recallId) {
+      return undefined;
+    }
+    this.turnExposures.delete(key);
+    return this.core.reinforceFromExposure({
       responseText: params.responseText,
       usedIds: params.usedIds,
-      turnId: active?.turnId,
-      recallId: active?.recallId,
+      turnId: params.turnId ?? active?.turnId ?? "__no_active_turn__",
+      recallId: params.recallId ?? active?.recallId,
       delta: this.config.reinforceDelta,
       mode: this.config.reinforceMode,
       injected: params.injected ?? this.config.injected,
       appNamespace: scope.namespace,
     });
-    if (key) {
-      this.turnExposures.delete(key);
-    }
-    return result;
   }
 
   async forget(params: {
@@ -549,7 +647,7 @@ export class EbbmemOpenClawRuntime {
         ok: false,
         status: "degraded",
         provider: "ebbmem",
-        error: redactSecrets(msg),
+        error: redactPluginSecrets(msg),
       };
     }
   }
@@ -576,14 +674,36 @@ export class EbbmemOpenClawRuntime {
               query,
               agentId: nonEmptyString(opts.agentId) ?? agentId,
               sessionKey: nonEmptyString(opts.sessionKey),
+              sessionId: nonEmptyString(opts.sessionId),
+              userId: nonEmptyString(opts.userId),
+              namespace: nonEmptyString(opts.namespace),
               limit: typeof opts.limit === "number" ? opts.limit : undefined,
               minScore: typeof opts.minScore === "number" ? opts.minScore : undefined,
             });
             return res.results;
           },
-          readFile: async ({ relPath, memoryId, from, lines }) => {
+          readFile: async ({
+            relPath,
+            memoryId,
+            from,
+            lines,
+            agentId: callAgentId,
+            sessionKey,
+            sessionId,
+            userId,
+            namespace,
+          }) => {
             const targetId = memoryId ?? relPath ?? "";
-            const rec = await this.get({ memoryId: targetId, agentId, from, lines });
+            const rec = await this.get({
+              memoryId: targetId,
+              agentId: nonEmptyString(callAgentId) ?? agentId,
+              sessionKey: nonEmptyString(sessionKey),
+              sessionId: nonEmptyString(sessionId),
+              userId: nonEmptyString(userId),
+              namespace: nonEmptyString(namespace),
+              from,
+              lines,
+            });
             return {
               text: rec && typeof rec.content === "string" ? rec.content : "",
               path: targetId,

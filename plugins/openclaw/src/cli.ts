@@ -3,12 +3,16 @@ import * as os from "node:os";
 import * as path from "node:path";
 import {
   ValidationError,
-  redactSecrets,
   validateAuthCredentials,
   validateBaseUrl,
   validateNamespace,
 } from "ebbmem-integration-core";
-import { EbbmemOpenClawConfig, parsePluginConfig, resolveScopeForContext } from "./config.js";
+import {
+  EbbmemOpenClawConfig,
+  parsePluginConfig,
+  redactPluginSecrets,
+  resolveScopeForContext,
+} from "./config.js";
 import { OpenClawPluginApi } from "./openclaw-types.js";
 import { EbbmemOpenClawRuntime } from "./runtime.js";
 
@@ -210,8 +214,11 @@ export async function runInitWizard(options: InitWizardOptions = {}): Promise<In
 
 export function registerEbbmemCli(
   api: OpenClawPluginApi,
-  runtime: EbbmemOpenClawRuntime,
+  runtimeOrGetter: EbbmemOpenClawRuntime | (() => EbbmemOpenClawRuntime),
 ): void {
+  const getRuntime =
+    typeof runtimeOrGetter === "function" ? runtimeOrGetter : () => runtimeOrGetter;
+
   api.registerCli(
     ({ program, configPath, logger }) => {
       const root = program
@@ -228,6 +235,12 @@ export function registerEbbmemCli(
         .option("--tenant <tenant>", "Default tenant prefix", "default")
         .option("--user-id <userId>", "Default user ID")
         .option("--namespace <namespace>", "Explicit fallback namespace")
+        .option(
+          "--agent-namespace <mapping...>",
+          "Per-agent namespace override (agentId=namespace)",
+          (val: string, prev: string[] = []) => [...prev, val],
+          [],
+        )
         .option("--config-path <path>", "Path to openclaw.json")
         .option("-y, --yes", "Non-interactive mode")
         .action(async (cmdOpts: Record<string, unknown>) => {
@@ -256,6 +269,7 @@ export function registerEbbmemCli(
         .description("Check EbbMem runtime health and resolved namespace configuration")
         .option("--agent-id <agentId>", "OpenClaw agentId to resolve namespace for")
         .action(async (cmdOpts: Record<string, unknown>) => {
+          const runtime = getRuntime();
           const agentId = typeof cmdOpts.agentId === "string" ? cmdOpts.agentId : undefined;
           const scope = resolveScopeForContext(runtime.config, { agentId });
           const health = await runtime.health();
@@ -270,7 +284,7 @@ export function registerEbbmemCli(
             failOpen: runtime.config.failOpen,
             health,
           };
-          logger?.info(redactSecrets(JSON.stringify(summary)));
+          logger?.info(redactPluginSecrets(JSON.stringify(summary)));
         });
     },
     {
@@ -288,16 +302,19 @@ export function registerEbbmemCli(
 
 export function registerEbbmemSetupCommand(
   api: OpenClawPluginApi,
-  runtime: EbbmemOpenClawRuntime,
+  runtimeOrGetter: EbbmemOpenClawRuntime | (() => EbbmemOpenClawRuntime),
 ): void {
   if (typeof api.registerCommand !== "function") {
     return;
   }
+  const getRuntime =
+    typeof runtimeOrGetter === "function" ? runtimeOrGetter : () => runtimeOrGetter;
   api.registerCommand({
     name: "ebbmem",
     description: "Show EbbMem setup instructions or check status (/ebbmem setup | /ebbmem status)",
     acceptsArgs: true,
     async handler(ctx) {
+      const runtime = getRuntime();
       const arg = (ctx.args ?? "").trim().toLowerCase();
       if (!arg || arg === "setup" || arg === "init" || arg === "help") {
         return { text: buildSetupGuidance(runtime.config) };

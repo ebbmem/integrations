@@ -134,6 +134,11 @@ export interface RegisteredMemorySearchManager {
     memoryId?: string;
     from?: number;
     lines?: number;
+    agentId?: string;
+    sessionKey?: string;
+    sessionId?: string;
+    userId?: string;
+    namespace?: string;
   }): Promise<{ text: string; path: string }>;
   status(): Promise<Record<string, unknown>>;
   probeEmbeddingAvailability?(): Promise<{ ok: boolean; error?: string }>;
@@ -221,7 +226,12 @@ export interface MemoryCapabilityRegistration {
 export interface CommanderCommandLike {
   command(nameAndArgs: string): CommanderCommandLike;
   description(str: string): CommanderCommandLike;
-  option(flags: string, description?: string, defaultValue?: string | boolean): CommanderCommandLike;
+  option(
+    flags: string,
+    description?: string,
+    defaultValueOrParser?: string | boolean | string[] | ((value: string, previous: any) => any),
+    defaultValue?: any,
+  ): CommanderCommandLike;
   action(fn: (...args: any[]) => void | Promise<void>): CommanderCommandLike;
 }
 

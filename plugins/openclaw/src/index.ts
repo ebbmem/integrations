@@ -6,7 +6,7 @@ import { OpenClawPluginApi, definePluginEntry } from "./openclaw-types.js";
 import { EbbmemOpenClawRuntime } from "./runtime.js";
 import { registerEbbmemTools } from "./tools.js";
 
-const registeredApis = new WeakSet<object>();
+const registeredApis = new WeakMap<object, { runtime: EbbmemOpenClawRuntime }>();
 let activeRuntime: EbbmemOpenClawRuntime | null = null;
 
 export interface RegisterEbbmemOptions {
@@ -25,7 +25,12 @@ export function register(
   api: OpenClawPluginApi,
   options: RegisterEbbmemOptions = {},
 ): RegisterEbbmemResult {
-  if (registeredApis.has(api) && activeRuntime && !activeRuntime.isClosed()) {
+  const existingBinding = registeredApis.get(api);
+  if (
+    existingBinding &&
+    existingBinding.runtime === activeRuntime &&
+    !activeRuntime.isClosed()
+  ) {
     return { runtime: activeRuntime, reused: true };
   }
 
@@ -55,12 +60,18 @@ export function register(
     flushPlanResolver: runtime.flushPlanResolver,
   });
 
-  registerEbbmemTools(api, runtime);
-  registerEbbmemHooks(api, runtime);
-  registerEbbmemCli(api, runtime);
-  registerEbbmemSetupCommand(api, runtime);
+  if (existingBinding) {
+    existingBinding.runtime = runtime;
+  } else {
+    const binding = { runtime };
+    registeredApis.set(api, binding);
+    const getRuntime = () => binding.runtime;
+    registerEbbmemTools(api, getRuntime);
+    registerEbbmemHooks(api, getRuntime);
+    registerEbbmemCli(api, getRuntime);
+    registerEbbmemSetupCommand(api, getRuntime);
+  }
 
-  registeredApis.add(api);
   activeRuntime = runtime;
 
   return { runtime, reused: false };
