@@ -257,6 +257,15 @@ def _detect_sdk_capabilities(sdk_client: Any, models: Mapping[str, Any]) -> SdkC
     has_ns_list = callable(getattr(raw_mem, "list_namespaces", None)) or callable(
         getattr(getattr(sdk_client, "memory", None), "list_namespaces", None)
     )
+    has_list_memories = callable(getattr(raw_mem, "list_memories", None)) or callable(
+        getattr(getattr(sdk_client, "memory", None), "list_memories", None)
+    )
+    has_ep_remember = callable(getattr(raw_mem, "episodic_remember", None)) or callable(
+        getattr(getattr(sdk_client, "memory", None), "episodic_remember", None)
+    )
+    has_ep_tail = callable(getattr(raw_mem, "episodic_tail", None)) or callable(
+        getattr(getattr(sdk_client, "memory", None), "episodic_tail", None)
+    )
     return SdkCapabilities(
         tier_on_remember=has_raw,
         session_id_on_remember=has_raw,
@@ -270,6 +279,9 @@ def _detect_sdk_capabilities(sdk_client: Any, models: Mapping[str, Any]) -> SdkC
         exact_key_delete=has_exact_key,
         metadata_filter_on_list_recall=bool(getattr(sdk_client, "supports_metadata_filter", False)),
         namespace_prefix_list=has_ns_list,
+        list_memories=has_list_memories,
+        episodic_remember=has_ep_remember,
+        episodic_tail=has_ep_tail,
         notes=(
             "Released ebbmem-client 0.2.0 facade omits tier/session_id/metadata on remember, "
             "profile/min_score/domain on recall, and used_ids/recall_id on reinforce (where "

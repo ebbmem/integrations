@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
@@ -36,6 +37,9 @@ class SdkCapabilities:
     exact_key_delete: bool = False
     metadata_filter_on_list_recall: bool = False
     namespace_prefix_list: bool = False
+    list_memories: bool = False
+    episodic_remember: bool = False
+    episodic_tail: bool = False
     notes: tuple[str, ...] = ()
 
 
@@ -83,6 +87,53 @@ class MemoryTransport(Protocol):
         profile: str | None = None,
         min_score: float | None = None,
         domain: str | None = None,
+        timeout_s: float | None = None,
+        headers: Mapping[str, str] | None = None,
+    ) -> dict[str, Any]: ...
+
+    def list_memories(
+        self,
+        *,
+        namespace: str | None = None,
+        tier: str | None = None,
+        tags: Sequence[str] | None = None,
+        tombstoned: bool = False,
+        search: str | None = None,
+        session_id: str | None = None,
+        limit: int = 50,
+        cursor: str | None = None,
+        page: int | None = None,
+        page_size: int | None = None,
+        min_importance: float | None = None,
+        min_valence: float | None = None,
+        max_valence: float | None = None,
+        metadata_filter: Mapping[str, Any] | None = None,
+        timeout_s: float | None = None,
+        headers: Mapping[str, str] | None = None,
+    ) -> dict[str, Any]: ...
+
+    def episodic_remember(
+        self,
+        *,
+        thread_key: str | None = None,
+        session_id: str | None = None,
+        content: str,
+        role: str = "user",
+        tags: Sequence[str] | None = None,
+        namespace: str | None = None,
+        idempotency_key: str | None = None,
+        mcp_profile: str = "full",
+        headers: Mapping[str, str] | None = None,
+    ) -> dict[str, Any]: ...
+
+    def episodic_tail(
+        self,
+        *,
+        thread_key: str | None = None,
+        session_id: str | None = None,
+        limit: int = 10,
+        namespace: str | None = None,
+        mcp_profile: str = "full",
         timeout_s: float | None = None,
         headers: Mapping[str, str] | None = None,
     ) -> dict[str, Any]: ...
@@ -167,6 +218,53 @@ class AsyncMemoryTransport(Protocol):
         profile: str | None = None,
         min_score: float | None = None,
         domain: str | None = None,
+        timeout_s: float | None = None,
+        headers: Mapping[str, str] | None = None,
+    ) -> dict[str, Any]: ...
+
+    async def list_memories(
+        self,
+        *,
+        namespace: str | None = None,
+        tier: str | None = None,
+        tags: Sequence[str] | None = None,
+        tombstoned: bool = False,
+        search: str | None = None,
+        session_id: str | None = None,
+        limit: int = 50,
+        cursor: str | None = None,
+        page: int | None = None,
+        page_size: int | None = None,
+        min_importance: float | None = None,
+        min_valence: float | None = None,
+        max_valence: float | None = None,
+        metadata_filter: Mapping[str, Any] | None = None,
+        timeout_s: float | None = None,
+        headers: Mapping[str, str] | None = None,
+    ) -> dict[str, Any]: ...
+
+    async def episodic_remember(
+        self,
+        *,
+        thread_key: str | None = None,
+        session_id: str | None = None,
+        content: str,
+        role: str = "user",
+        tags: Sequence[str] | None = None,
+        namespace: str | None = None,
+        idempotency_key: str | None = None,
+        mcp_profile: str = "full",
+        headers: Mapping[str, str] | None = None,
+    ) -> dict[str, Any]: ...
+
+    async def episodic_tail(
+        self,
+        *,
+        thread_key: str | None = None,
+        session_id: str | None = None,
+        limit: int = 10,
+        namespace: str | None = None,
+        mcp_profile: str = "full",
         timeout_s: float | None = None,
         headers: Mapping[str, str] | None = None,
     ) -> dict[str, Any]: ...
@@ -259,11 +357,18 @@ def _merge_headers_ci(
 def _http_error_from_response(resp: HttpResponse) -> EbbmemApiError:
     body = resp.body if isinstance(resp.body, Mapping) else {}
     code = body.get("code") if isinstance(body.get("code"), str) else None
-    if code is None and isinstance(body.get("error"), Mapping):
-        nested_code = body["error"].get("code")
+    err_obj = body.get("error") if isinstance(body.get("error"), Mapping) else None
+    if code is None and err_obj is not None:
+        nested_code = err_obj.get("code")
         if isinstance(nested_code, str):
             code = nested_code
+        elif isinstance(err_obj.get("data"), Mapping):
+            data_code = err_obj["data"].get("code")
+            if isinstance(data_code, str):
+                code = data_code
     detail = body.get("detail") if isinstance(body.get("detail"), str) else None
+    if detail is None and err_obj is not None and isinstance(err_obj.get("message"), str):
+        detail = err_obj.get("message")
     retry_after = parse_retry_after(resp.headers)
     msg = redact_secrets(
         f"EbbMem HTTP {resp.status}"
@@ -292,3 +397,48 @@ def _http_error_from_response(resp: HttpResponse) -> EbbmemApiError:
     if resp.status >= 500:
         return ServerError(msg, **kwargs)
     return EbbmemApiError(msg, **kwargs)
+
+
+def _mcp_error_from_payload(
+    status: int,
+    headers: Mapping[str, str],
+    payload: Mapping[str, Any],
+) -> EbbmemApiError:
+    err_obj = payload.get("error") if isinstance(payload.get("error"), Mapping) else {}
+    rpc_code = err_obj.get("code")
+    effective_status = status
+    if effective_status < 400:
+        if rpc_code == -32003:
+            effective_status = 403
+        elif rpc_code == -32004 or rpc_code == -32601:
+            effective_status = 404
+        elif rpc_code == -32602:
+            effective_status = 422
+        else:
+            effective_status = 400
+    return _http_error_from_response(
+        HttpResponse(status=effective_status, headers=dict(headers), body=dict(payload))
+    )
+
+
+def _extract_mcp_result_dict(payload: Any) -> dict[str, Any]:
+    if not isinstance(payload, Mapping):
+        return {}
+    result = payload.get("result") if isinstance(payload.get("result"), Mapping) else payload
+    for key in ("structuredContent", "structured_content"):
+        structured = result.get(key)
+        if isinstance(structured, Mapping):
+            return dict(structured)
+    content = result.get("content")
+    if isinstance(content, Sequence) and not isinstance(content, str | bytes):
+        for item in content:
+            if isinstance(item, Mapping):
+                text = item.get("text")
+                if isinstance(text, str) and text.strip():
+                    try:
+                        parsed = json.loads(text)
+                    except json.JSONDecodeError:
+                        continue
+                    if isinstance(parsed, Mapping):
+                        return dict(parsed)
+    return dict(result) if isinstance(result, Mapping) else {}

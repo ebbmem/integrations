@@ -10,7 +10,7 @@ import urllib.request
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from ebbmem_integration_core.errors import RequestTimeoutError, TransportError
+from ebbmem_integration_core.errors import RequestTimeoutError, TransportError, ValidationError
 from ebbmem_integration_core.reinforce import DEFAULT_REINFORCE_DELTA, validate_delta
 from ebbmem_integration_core.retry import (
     RETRYABLE_STATUS_CODES,
@@ -29,8 +29,11 @@ from ebbmem_integration_core.security import (
 from ebbmem_integration_core.transport_types import (
     HttpResponse,
     SdkCapabilities,
+    _extract_mcp_result_dict,
     _http_error_from_response,
+    _mcp_error_from_payload,
     _merge_headers_ci,
+    _set_header_ci,
     _setdefault_header_ci,
 )
 
@@ -63,10 +66,13 @@ class StdlibHttpTransport:
             exact_key_delete=False,
             metadata_filter_on_list_recall=False,
             namespace_prefix_list=False,
+            list_memories=True,
+            episodic_remember=True,
+            episodic_tail=True,
             notes=(
-                "Built-in stdlib HTTP transport supports full IC-1 REST verbs; "
-                "P0-09 exact-key lookup/delete, metadata filters, and namespace listing "
-                "are not yet enabled on the base transport.",
+                "Built-in stdlib HTTP transport supports full IC-1 REST verbs, list_memories, "
+                "and MCP episodic_remember/episodic_tail; P0-09 exact-key lookup/delete and "
+                "namespace listing are not yet enabled on the base transport.",
             ),
         )
 
@@ -436,3 +442,223 @@ class StdlibHttpTransport:
 
     def health(self) -> dict[str, Any]:
         return self._call_json("GET", "/healthz")
+
+    def _build_list_request(
+        self,
+        *,
+        namespace: str | None = None,
+        tier: str | None = None,
+        tags: Sequence[str] | None = None,
+        tombstoned: bool = False,
+        search: str | None = None,
+        session_id: str | None = None,
+        limit: int = 50,
+        cursor: str | None = None,
+        page: int | None = None,
+        page_size: int | None = None,
+        min_importance: float | None = None,
+        min_valence: float | None = None,
+        max_valence: float | None = None,
+        metadata_filter: Mapping[str, Any] | None = None,
+        headers: Mapping[str, str] | None = None,
+    ) -> tuple[dict[str, str], dict[str, str]]:
+        req_headers = dict(headers or {})
+        query: dict[str, str] = {
+            "limit": str(limit),
+            "tombstoned": "true" if tombstoned else "false",
+        }
+        if namespace is not None:
+            _setdefault_header_ci(req_headers, "X-Ebb-Namespace", namespace)
+            query["namespace"] = namespace
+        if tier is not None:
+            query["tier"] = tier
+        if tags:
+            query["tags"] = ",".join(tags)
+        if search is not None:
+            query["search"] = search
+        if session_id is not None:
+            query["session_id"] = session_id
+        if cursor is not None:
+            query["cursor"] = cursor
+        if page is not None:
+            query["page"] = str(page)
+        if page_size is not None:
+            query["page_size"] = str(page_size)
+        if min_importance is not None:
+            query["min_importance"] = str(min_importance)
+        if min_valence is not None:
+            query["min_valence"] = str(min_valence)
+        if max_valence is not None:
+            query["max_valence"] = str(max_valence)
+        if metadata_filter is not None:
+            query["metadata_filter"] = json.dumps(dict(metadata_filter))
+        return req_headers, query
+
+    def list_memories(
+        self,
+        *,
+        namespace: str | None = None,
+        tier: str | None = None,
+        tags: Sequence[str] | None = None,
+        tombstoned: bool = False,
+        search: str | None = None,
+        session_id: str | None = None,
+        limit: int = 50,
+        cursor: str | None = None,
+        page: int | None = None,
+        page_size: int | None = None,
+        min_importance: float | None = None,
+        min_valence: float | None = None,
+        max_valence: float | None = None,
+        metadata_filter: Mapping[str, Any] | None = None,
+        timeout_s: float | None = None,
+        headers: Mapping[str, str] | None = None,
+    ) -> dict[str, Any]:
+        req_headers, query = self._build_list_request(
+            namespace=namespace,
+            tier=tier,
+            tags=tags,
+            tombstoned=tombstoned,
+            search=search,
+            session_id=session_id,
+            limit=limit,
+            cursor=cursor,
+            page=page,
+            page_size=page_size,
+            min_importance=min_importance,
+            min_valence=min_valence,
+            max_valence=max_valence,
+            metadata_filter=metadata_filter,
+            headers=headers,
+        )
+        return self._call_json(
+            "GET",
+            "/api/v1/memory",
+            headers=req_headers,
+            query=query,
+            timeout_s=timeout_s,
+        )
+
+    def _prepare_mcp_call(
+        self,
+        tool_name: str,
+        arguments: dict[str, Any],
+        *,
+        namespace: str | None = None,
+        mcp_profile: str = "full",
+        idempotency_key: str | None = None,
+        headers: Mapping[str, str] | None = None,
+    ) -> tuple[str, dict[str, Any], dict[str, str]]:
+        if mcp_profile not in {"core", "full", "admin"}:
+            raise ValidationError(f"Invalid mcp_profile: {mcp_profile!r}")
+        req_headers = dict(headers or {})
+        _set_header_ci(req_headers, "Accept", "application/json, text/event-stream")
+        _setdefault_header_ci(req_headers, "MCP-Protocol-Version", "2026-07-28")
+        _set_header_ci(req_headers, "Mcp-Method", "tools/call")
+        _set_header_ci(req_headers, "Mcp-Name", tool_name)
+        _setdefault_header_ci(req_headers, "X-Ebb-MCP-Profile", mcp_profile)
+        if namespace is not None:
+            _setdefault_header_ci(req_headers, "X-Ebb-Namespace", namespace)
+        if idempotency_key is not None:
+            validate_idempotency_key(idempotency_key)
+            _setdefault_header_ci(req_headers, "Idempotency-Key", idempotency_key)
+        rpc_body = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": tool_name, "arguments": arguments},
+        }
+        return f"/mcp/{mcp_profile}", rpc_body, req_headers
+
+    def _call_mcp_tool(
+        self,
+        tool_name: str,
+        arguments: dict[str, Any],
+        *,
+        namespace: str | None = None,
+        mcp_profile: str = "full",
+        idempotency_key: str | None = None,
+        timeout_s: float | None = None,
+        headers: Mapping[str, str] | None = None,
+    ) -> dict[str, Any]:
+        path, rpc_body, req_headers = self._prepare_mcp_call(
+            tool_name,
+            arguments,
+            namespace=namespace,
+            mcp_profile=mcp_profile,
+            idempotency_key=idempotency_key,
+            headers=headers,
+        )
+        resp = self.request_with_retry(
+            "POST",
+            path,
+            json_body=rpc_body,
+            headers=req_headers,
+            timeout_s=timeout_s,
+        )
+        if resp.status >= 400:
+            raise _http_error_from_response(resp)
+        if isinstance(resp.body, Mapping) and resp.body.get("error") is not None:
+            raise _mcp_error_from_payload(resp.status, resp.headers, resp.body)
+        return _extract_mcp_result_dict(resp.body)
+
+    def episodic_remember(
+        self,
+        *,
+        thread_key: str | None = None,
+        session_id: str | None = None,
+        content: str,
+        role: str = "user",
+        tags: Sequence[str] | None = None,
+        namespace: str | None = None,
+        idempotency_key: str | None = None,
+        mcp_profile: str = "full",
+        headers: Mapping[str, str] | None = None,
+    ) -> dict[str, Any]:
+        args: dict[str, Any] = {"content": content, "role": role}
+        if thread_key is not None:
+            args["thread_key"] = thread_key
+        if session_id is not None:
+            args["session_id"] = session_id
+        if tags is not None:
+            args["tags"] = list(tags)
+        if namespace is not None:
+            args["namespace"] = namespace
+        if idempotency_key is not None:
+            validate_idempotency_key(idempotency_key)
+            args["idempotency_key"] = idempotency_key
+        return self._call_mcp_tool(
+            "memory_episodic_remember",
+            args,
+            namespace=namespace,
+            mcp_profile=mcp_profile,
+            idempotency_key=idempotency_key,
+            headers=headers,
+        )
+
+    def episodic_tail(
+        self,
+        *,
+        thread_key: str | None = None,
+        session_id: str | None = None,
+        limit: int = 10,
+        namespace: str | None = None,
+        mcp_profile: str = "full",
+        timeout_s: float | None = None,
+        headers: Mapping[str, str] | None = None,
+    ) -> dict[str, Any]:
+        args: dict[str, Any] = {"limit": limit}
+        if thread_key is not None:
+            args["thread_key"] = thread_key
+        if session_id is not None:
+            args["session_id"] = session_id
+        if namespace is not None:
+            args["namespace"] = namespace
+        return self._call_mcp_tool(
+            "memory_episodic_tail",
+            args,
+            namespace=namespace,
+            mcp_profile=mcp_profile,
+            timeout_s=timeout_s,
+            headers=headers,
+        )

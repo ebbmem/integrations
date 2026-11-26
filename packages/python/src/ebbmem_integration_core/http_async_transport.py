@@ -20,7 +20,9 @@ from ebbmem_integration_core.retry import (
 from ebbmem_integration_core.security import TELEMETRY_ENABLED_DEFAULT
 from ebbmem_integration_core.transport_types import (
     HttpResponse,
+    _extract_mcp_result_dict,
     _http_error_from_response,
+    _mcp_error_from_payload,
     _setdefault_header_ci,
 )
 
@@ -348,3 +350,141 @@ class AsyncStdlibHttpTransport:
 
     async def health(self) -> dict[str, Any]:
         return await self._call_json("GET", "/healthz")
+
+    async def list_memories(
+        self,
+        *,
+        namespace: str | None = None,
+        tier: str | None = None,
+        tags: Sequence[str] | None = None,
+        tombstoned: bool = False,
+        search: str | None = None,
+        session_id: str | None = None,
+        limit: int = 50,
+        cursor: str | None = None,
+        page: int | None = None,
+        page_size: int | None = None,
+        min_importance: float | None = None,
+        min_valence: float | None = None,
+        max_valence: float | None = None,
+        metadata_filter: Mapping[str, Any] | None = None,
+        timeout_s: float | None = None,
+        headers: Mapping[str, str] | None = None,
+    ) -> dict[str, Any]:
+        req_headers, query = self._sync._build_list_request(
+            namespace=namespace,
+            tier=tier,
+            tags=tags,
+            tombstoned=tombstoned,
+            search=search,
+            session_id=session_id,
+            limit=limit,
+            cursor=cursor,
+            page=page,
+            page_size=page_size,
+            min_importance=min_importance,
+            min_valence=min_valence,
+            max_valence=max_valence,
+            metadata_filter=metadata_filter,
+            headers=headers,
+        )
+        return await self._call_json(
+            "GET",
+            "/api/v1/memory",
+            headers=req_headers,
+            query=query,
+            timeout_s=timeout_s,
+        )
+
+    async def _call_mcp_tool(
+        self,
+        tool_name: str,
+        arguments: dict[str, Any],
+        *,
+        namespace: str | None = None,
+        mcp_profile: str = "full",
+        idempotency_key: str | None = None,
+        timeout_s: float | None = None,
+        headers: Mapping[str, str] | None = None,
+    ) -> dict[str, Any]:
+        path, rpc_body, req_headers = self._sync._prepare_mcp_call(
+            tool_name,
+            arguments,
+            namespace=namespace,
+            mcp_profile=mcp_profile,
+            idempotency_key=idempotency_key,
+            headers=headers,
+        )
+        resp = await self.request_with_retry(
+            "POST",
+            path,
+            json_body=rpc_body,
+            headers=req_headers,
+            timeout_s=timeout_s,
+        )
+        if resp.status >= 400:
+            raise _http_error_from_response(resp)
+        if isinstance(resp.body, Mapping) and resp.body.get("error") is not None:
+            raise _mcp_error_from_payload(resp.status, resp.headers, resp.body)
+        return _extract_mcp_result_dict(resp.body)
+
+    async def episodic_remember(
+        self,
+        *,
+        thread_key: str | None = None,
+        session_id: str | None = None,
+        content: str,
+        role: str = "user",
+        tags: Sequence[str] | None = None,
+        namespace: str | None = None,
+        idempotency_key: str | None = None,
+        mcp_profile: str = "full",
+        headers: Mapping[str, str] | None = None,
+    ) -> dict[str, Any]:
+        args: dict[str, Any] = {"content": content, "role": role}
+        if thread_key is not None:
+            args["thread_key"] = thread_key
+        if session_id is not None:
+            args["session_id"] = session_id
+        if tags is not None:
+            args["tags"] = list(tags)
+        if namespace is not None:
+            args["namespace"] = namespace
+        if idempotency_key is not None:
+            validate_idempotency_key(idempotency_key)
+            args["idempotency_key"] = idempotency_key
+        return await self._call_mcp_tool(
+            "memory_episodic_remember",
+            args,
+            namespace=namespace,
+            mcp_profile=mcp_profile,
+            idempotency_key=idempotency_key,
+            headers=headers,
+        )
+
+    async def episodic_tail(
+        self,
+        *,
+        thread_key: str | None = None,
+        session_id: str | None = None,
+        limit: int = 10,
+        namespace: str | None = None,
+        mcp_profile: str = "full",
+        timeout_s: float | None = None,
+        headers: Mapping[str, str] | None = None,
+    ) -> dict[str, Any]:
+        args: dict[str, Any] = {"limit": limit}
+        if thread_key is not None:
+            args["thread_key"] = thread_key
+        if session_id is not None:
+            args["session_id"] = session_id
+        if namespace is not None:
+            args["namespace"] = namespace
+        return await self._call_mcp_tool(
+            "memory_episodic_tail",
+            args,
+            namespace=namespace,
+            mcp_profile=mcp_profile,
+            timeout_s=timeout_s,
+            headers=headers,
+        )

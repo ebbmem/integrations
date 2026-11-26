@@ -455,3 +455,144 @@ class AsyncEbbmemClientSdkAdapter:
             raise
         except Exception as exc:
             raise _translate_sdk_exception(exc) from exc
+
+    async def list_memories(
+        self,
+        *,
+        namespace: str | None = None,
+        tier: str | None = None,
+        tags: Sequence[str] | None = None,
+        tombstoned: bool = False,
+        search: str | None = None,
+        session_id: str | None = None,
+        limit: int = 50,
+        cursor: str | None = None,
+        page: int | None = None,
+        page_size: int | None = None,
+        min_importance: float | None = None,
+        min_valence: float | None = None,
+        max_valence: float | None = None,
+        metadata_filter: Mapping[str, Any] | None = None,
+        timeout_s: float | None = None,
+        headers: Mapping[str, str] | None = None,
+    ) -> dict[str, Any]:
+        fn = getattr(getattr(self._sdk, "memory", None), "list_memories", None) or getattr(
+            getattr(getattr(self._sdk, "raw", None), "memory", None), "list_memories", None
+        )
+        if not self.capabilities.list_memories or not callable(fn):
+            raise UnsupportedCapabilityError(
+                "list_memories requires EbbMem 0.3+ APIs not present in ebbmem-client 0.2.0 "
+                "(use AsyncStdlibHttpTransport)"
+            )
+        kwargs: dict[str, Any] = {
+            "namespace": namespace,
+            "tier": tier,
+            "tags": list(tags) if tags is not None else None,
+            "tombstoned": tombstoned,
+            "search": search,
+            "session_id": session_id,
+            "limit": limit,
+            "cursor": cursor,
+            "page": page,
+            "page_size": page_size,
+            "min_importance": min_importance,
+            "min_valence": min_valence,
+            "max_valence": max_valence,
+            "metadata_filter": dict(metadata_filter) if metadata_filter is not None else None,
+            "timeout_s": timeout_s,
+            "headers": dict(headers) if headers is not None else None,
+        }
+        clean = {k: v for k, v in kwargs.items() if v is not None}
+        try:
+            res = fn(**clean)
+            if inspect.isawaitable(res):
+                res = await res
+            return _to_plain_dict(res)
+        except EbbmemApiError:
+            raise
+        except Exception as exc:
+            raise _translate_sdk_exception(exc) from exc
+
+    async def episodic_remember(
+        self,
+        *,
+        thread_key: str | None = None,
+        session_id: str | None = None,
+        content: str,
+        role: str = "user",
+        tags: Sequence[str] | None = None,
+        namespace: str | None = None,
+        idempotency_key: str | None = None,
+        mcp_profile: str = "full",
+        headers: Mapping[str, str] | None = None,
+    ) -> dict[str, Any]:
+        if idempotency_key is not None:
+            validate_idempotency_key(idempotency_key)
+        fn = getattr(getattr(self._sdk, "memory", None), "episodic_remember", None) or getattr(
+            getattr(getattr(self._sdk, "raw", None), "memory", None), "episodic_remember", None
+        )
+        if not self.capabilities.episodic_remember or not callable(fn):
+            raise UnsupportedCapabilityError(
+                "episodic_remember requires EbbMem 0.3+ APIs not present in ebbmem-client 0.2.0 "
+                "(use AsyncStdlibHttpTransport)"
+            )
+        kwargs: dict[str, Any] = {
+            "thread_key": thread_key,
+            "session_id": session_id,
+            "content": content,
+            "role": role,
+            "tags": list(tags) if tags is not None else None,
+            "namespace": namespace,
+            "idempotency_key": idempotency_key,
+            "mcp_profile": mcp_profile,
+            "headers": dict(headers) if headers is not None else None,
+        }
+        clean = {k: v for k, v in kwargs.items() if v is not None}
+        try:
+            res = fn(**clean)
+            if inspect.isawaitable(res):
+                res = await res
+            return _to_plain_dict(res)
+        except EbbmemApiError:
+            raise
+        except Exception as exc:
+            raise _translate_sdk_exception(exc) from exc
+
+    async def episodic_tail(
+        self,
+        *,
+        thread_key: str | None = None,
+        session_id: str | None = None,
+        limit: int = 10,
+        namespace: str | None = None,
+        mcp_profile: str = "full",
+        timeout_s: float | None = None,
+        headers: Mapping[str, str] | None = None,
+    ) -> dict[str, Any]:
+        fn = getattr(getattr(self._sdk, "memory", None), "episodic_tail", None) or getattr(
+            getattr(getattr(self._sdk, "raw", None), "memory", None), "episodic_tail", None
+        )
+        if not self.capabilities.episodic_tail or not callable(fn):
+            raise UnsupportedCapabilityError(
+                "episodic_tail requires EbbMem 0.3+ APIs not present in ebbmem-client 0.2.0 "
+                "(use AsyncStdlibHttpTransport)"
+            )
+        kwargs: dict[str, Any] = {
+            "thread_key": thread_key,
+            "session_id": session_id,
+            "limit": limit,
+            "namespace": namespace,
+            "mcp_profile": mcp_profile,
+            "timeout_s": timeout_s,
+            "headers": dict(headers) if headers is not None else None,
+        }
+        clean = {k: v for k, v in kwargs.items() if v is not None}
+        try:
+            res = fn(**clean)
+            if inspect.isawaitable(res):
+                res = await res
+            return _to_plain_dict(res)
+        except EbbmemApiError:
+            raise
+        except Exception as exc:
+            raise _translate_sdk_exception(exc) from exc
