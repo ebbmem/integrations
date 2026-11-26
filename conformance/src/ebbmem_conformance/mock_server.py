@@ -368,14 +368,6 @@ class _MockRequestHandler(BaseHTTPRequestHandler):
         if path == "/api/v1/memory/remember":
             self._handle_rest_remember(identity, body, path)
             return
-        if path == "/api/v1/memory":
-            ns_param = query.get("namespace", [None])[0]
-            ns = self._resolve_namespace(identity, ns_param, path)
-            if ns is None:
-                return
-            status, payload = execute_list_memories(self.state, ns, query)
-            self._send_json(status, payload, record_path=path)
-            return
 
         if path == "/api/v1/memory/recall":
             self._handle_rest_recall(identity, body, path)

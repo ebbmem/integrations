@@ -403,7 +403,10 @@ def execute_list_memories(
             if max_valence is not None and item.valence > max_valence:
                 continue
             if metadata_filter is not None and not all(
-                k in item.metadata and item.metadata[k] == v for k, v in metadata_filter.items()
+                k in item.metadata
+                and (type(item.metadata[k]) is bool) == (type(v) is bool)
+                and item.metadata[k] == v
+                for k, v in metadata_filter.items()
             ):
                 continue
             matched.append(item)

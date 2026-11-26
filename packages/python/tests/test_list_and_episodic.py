@@ -395,3 +395,64 @@ def test_sdk_adapters_capabilities_and_guards() -> None:
         assert (await async_v030.episodic_tail(thread_key="t1"))["status"] == "ok"
 
     asyncio.run(_run_async())
+
+
+def test_list_memories_page_size_and_aws_key_redaction_sync_and_async() -> None:
+    alice_scope = ScopeResolver(tenant="acme", user_id="alice")
+    with MockEbbmemServer() as srv:
+        client = IntegrationClient(
+            srv.base_url,
+            api_key="ebb_test_alice_key",
+            scope=alice_scope,
+        )
+        for i in range(4):
+            client.remember(f"item {i}", timestamp_ms=1000 + i)
+
+        # page_size=2 without limit must NOT be overridden by default limit=50
+        page_sync = client.list_memories(page_size=2)
+        assert page_sync["total"] == 4
+        assert len(page_sync["items"]) == 2
+        assert page_sync["has_more"] is True
+
+        # Standalone AKIA key in both content and tags is redacted in episodic_remember
+        aws_key = "AKIAIOSFODNN7EXAMPLE"
+        ep_sync = client.episodic_remember(
+            f"aws key {aws_key}",
+            thread_key="aws-sync",
+            tags=[f"aws:{aws_key}", aws_key],
+        )
+        assert ep_sync["status"] == "remembered"
+        turns_sync = srv.get_episodic_turns("acme:u:alice", "aws-sync")
+        assert len(turns_sync) == 1
+        assert aws_key not in turns_sync[0].content
+        assert turns_sync[0].content == "aws key [REDACTED]"
+        assert all(aws_key not in tag for tag in turns_sync[0].tags)
+        assert "aws:[REDACTED]" in turns_sync[0].tags
+        assert "[REDACTED]" in turns_sync[0].tags
+
+        async def _run_async() -> None:
+            async_client = AsyncIntegrationClient(
+                srv.base_url,
+                api_key="ebb_test_alice_key",
+                scope=alice_scope,
+            )
+            page_async = await async_client.list_memories(page_size=2)
+            assert page_async["total"] == 5
+            assert len(page_async["items"]) == 2
+            assert page_async["has_more"] is True
+
+            ep_async = await async_client.episodic_remember(
+                f"async aws {aws_key}",
+                thread_key="aws-async",
+                tags=[f"aws:{aws_key}", aws_key],
+            )
+            assert ep_async["status"] == "remembered"
+            turns_async = srv.get_episodic_turns("acme:u:alice", "aws-async")
+            assert len(turns_async) == 1
+            assert aws_key not in turns_async[0].content
+            assert turns_async[0].content == "async aws [REDACTED]"
+            assert all(aws_key not in tag for tag in turns_async[0].tags)
+            assert "aws:[REDACTED]" in turns_async[0].tags
+            assert "[REDACTED]" in turns_async[0].tags
+
+        asyncio.run(_run_async())

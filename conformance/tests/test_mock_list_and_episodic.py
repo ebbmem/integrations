@@ -295,6 +295,62 @@ def test_list_memories_filters_pagination_isolation_and_readonly() -> None:
         assert st_erased == 404
 
 
+def test_metadata_filter_strict_bool_vs_int_and_post_memory_404() -> None:
+    alice_headers = {"X-API-Key": "ebb_test_alice_key", "X-Ebb-Namespace": "acme:u:alice"}
+    with MockEbbmemServer() as srv:
+        st_bool, m_bool = _http_json(
+            "POST",
+            f"{srv.base_url}/api/v1/memory/remember",
+            headers=alice_headers,
+            body={"content": "bool item", "metadata": {"ok": True, "flag": False}},
+        )
+        assert st_bool == 201
+        st_int, m_int = _http_json(
+            "POST",
+            f"{srv.base_url}/api/v1/memory/remember",
+            headers=alice_headers,
+            body={"content": "int item", "metadata": {"ok": 1, "flag": 0}},
+        )
+        assert st_int == 201
+
+        mf_true = urllib.parse.quote(json.dumps({"ok": True}))
+        st_true, res_true = _http_json(
+            "GET",
+            f"{srv.base_url}/api/v1/memory?metadata_filter={mf_true}",
+            headers=alice_headers,
+        )
+        assert st_true == 200
+        assert [r["memory_id"] for r in res_true["items"]] == [m_bool["memory_id"]]
+
+        mf_one = urllib.parse.quote(json.dumps({"ok": 1}))
+        st_one, res_one = _http_json(
+            "GET",
+            f"{srv.base_url}/api/v1/memory?metadata_filter={mf_one}",
+            headers=alice_headers,
+        )
+        assert st_one == 200
+        assert [r["memory_id"] for r in res_one["items"]] == [m_int["memory_id"]]
+
+        mf_false = urllib.parse.quote(json.dumps({"flag": False}))
+        st_false, res_false = _http_json(
+            "GET",
+            f"{srv.base_url}/api/v1/memory?metadata_filter={mf_false}",
+            headers=alice_headers,
+        )
+        assert st_false == 200
+        assert [r["memory_id"] for r in res_false["items"]] == [m_bool["memory_id"]]
+
+        # POST /api/v1/memory is not a valid route and must return 404
+        st_post, post_body = _http_json(
+            "POST",
+            f"{srv.base_url}/api/v1/memory",
+            headers=alice_headers,
+            body={},
+        )
+        assert st_post == 404
+        assert post_body["detail"] == "Not Found"
+
+
 def test_mcp_episodic_remember_and_tail_stateful_and_isolated() -> None:
     with MockEbbmemServer() as srv:
         # /mcp/core rejects episodic tools with -32601

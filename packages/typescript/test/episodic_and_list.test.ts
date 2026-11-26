@@ -196,20 +196,29 @@ describe("TypeScript listMemories & episodic MCP", () => {
         sessionId: "s-ts",
         timestampMs: 2000,
       });
+      const m3 = await alice.remember("Third TS memory", {
+        tier: "semantic",
+        timestampMs: 3000,
+      });
+
+      const pageSizeOnly = await alice.listMemories({ pageSize: 2 });
+      assert.equal(pageSizeOnly.total, 3);
+      assert.equal((pageSizeOnly.items as unknown[]).length, 2);
+      assert.equal(pageSizeOnly.has_more, true);
 
       const page1 = await alice.listMemories({ limit: 1 });
-      assert.equal(page1.total, 2);
+      assert.equal(page1.total, 3);
       assert.equal(page1.has_more, true);
       assert.deepEqual(
         (page1.items as Array<{ memory_id: string }>).map((x) => x.memory_id),
-        [m2.memory_id],
+        [m3.memory_id],
       );
 
       const page2 = await alice.listMemories({ limit: 1, cursor: String(page1.next_cursor) });
-      assert.equal(page2.has_more, false);
+      assert.equal(page2.has_more, true);
       assert.deepEqual(
         (page2.items as Array<{ memory_id: string }>).map((x) => x.memory_id),
-        [m1.memory_id],
+        [m2.memory_id],
       );
 
       const filtered = await alice.listMemories({
@@ -308,6 +317,25 @@ describe("TypeScript listMemories & episodic MCP", () => {
       );
       const roTail = await ro.episodicTail({ threadKey: "ts-thread-1" });
       assert.equal(roTail.count, 1);
+
+      // AWS Access Key ID redaction in standalone content and tags
+      const awsKey = "AKIAIOSFODNN7EXAMPLE";
+      const epAws = await alice.episodicRemember(`aws key ${awsKey}`, {
+        threadKey: "ts-aws-sec",
+        tags: [`aws:${awsKey}`, awsKey],
+      });
+      assert.equal(epAws.status, "remembered");
+      const awsTail = await alice.episodicTail({ threadKey: "ts-aws-sec", limit: 5 });
+      const awsTurns = awsTail.turns as Array<{ content: string; tags: string[] }>;
+      assert.equal(awsTurns.length, 1);
+      assert.equal(awsTurns[0].content, "aws key [REDACTED]");
+      assert.equal(awsTurns[0].content.includes(awsKey), false);
+      assert.ok(awsTurns[0].tags.includes("aws:[REDACTED]"));
+      assert.ok(awsTurns[0].tags.includes("[REDACTED]"));
+      assert.equal(
+        awsTurns[0].tags.some((t) => t.includes(awsKey)),
+        false,
+      );
 
       // Zero leaked secrets & zero telemetry headers
       const joinedLogs = alice.logSink.join("\n");

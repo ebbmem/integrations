@@ -342,7 +342,7 @@ export class EbbmemIntegrationCore {
         tombstoned: options.tombstoned ?? false,
         search: options.search,
         sessionId: resolved.sessionId,
-        limit: options.limit ?? 50,
+        limit: options.limit,
         cursor: options.cursor,
         page: options.page,
         pageSize: options.pageSize,

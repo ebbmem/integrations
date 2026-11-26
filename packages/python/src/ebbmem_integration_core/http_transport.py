@@ -452,7 +452,7 @@ class StdlibHttpTransport:
         tombstoned: bool = False,
         search: str | None = None,
         session_id: str | None = None,
-        limit: int = 50,
+        limit: int | None = None,
         cursor: str | None = None,
         page: int | None = None,
         page_size: int | None = None,
@@ -464,9 +464,10 @@ class StdlibHttpTransport:
     ) -> tuple[dict[str, str], dict[str, str]]:
         req_headers = dict(headers or {})
         query: dict[str, str] = {
-            "limit": str(limit),
             "tombstoned": "true" if tombstoned else "false",
         }
+        if limit is not None:
+            query["limit"] = str(limit)
         if namespace is not None:
             _setdefault_header_ci(req_headers, "X-Ebb-Namespace", namespace)
             query["namespace"] = namespace
@@ -503,7 +504,7 @@ class StdlibHttpTransport:
         tombstoned: bool = False,
         search: str | None = None,
         session_id: str | None = None,
-        limit: int = 50,
+        limit: int | None = None,
         cursor: str | None = None,
         page: int | None = None,
         page_size: int | None = None,

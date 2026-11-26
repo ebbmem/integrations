@@ -269,7 +269,7 @@ class AsyncIntegrationClient:
         domain: str | None = None,
         tombstoned: bool = False,
         search: str | None = None,
-        limit: int = 50,
+        limit: int | None = None,
         cursor: str | None = None,
         page: int | None = None,
         page_size: int | None = None,

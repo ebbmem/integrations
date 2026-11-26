@@ -643,9 +643,9 @@ export class FetchTransport implements EbbmemTransport {
   async listMemories(params: ListMemoriesParams = {}): Promise<Record<string, unknown>> {
     const reqHeaders: Record<string, string> = { ...(params.headers ?? {}) };
     const query: Record<string, string> = {
-      limit: String(params.limit ?? 50),
       tombstoned: params.tombstoned ? "true" : "false",
     };
+    if (params.limit !== undefined) query.limit = String(params.limit);
     if (params.namespace !== undefined) {
       setHeaderIfAbsentCaseInsensitive(reqHeaders, "X-Ebb-Namespace", params.namespace);
       query.namespace = params.namespace;
