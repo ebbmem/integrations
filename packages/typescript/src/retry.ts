@@ -19,6 +19,27 @@ const KEYED_REMEMBER_PATHS = new Set([
   "/api/v1/memory/remember/batch",
 ]);
 
+const MCP_PATHS = new Set(["/mcp", "/mcp/core", "/mcp/full", "/mcp/admin"]);
+const MCP_READ_ONLY_METHODS = new Set([
+  "ping",
+  "initialize",
+  "notifications/initialized",
+  "server/discover",
+  "tools/list",
+]);
+const MCP_READ_ONLY_TOOLS = new Set([
+  "memory_episodic_tail",
+  "memory_recall",
+  "memory_search",
+  "memory_get",
+  "memory_status",
+  "memory_context_pack",
+  "memory_why_not",
+  "memory_introspect",
+  "memory_federated_recall",
+]);
+const MCP_KEYED_WRITE_TOOLS = new Set(["memory_episodic_remember", "memory_remember"]);
+
 export function isValidIdempotencyKey(value: unknown): value is string {
   if (typeof value !== "string" || value.length < 1 || value.length > 256) {
     return false;
@@ -160,6 +181,39 @@ export function isIdempotentRequest(
     }
     if (KEYED_REMEMBER_PATHS.has(normalizedPath)) {
       return extractIdempotencyKey(options) !== undefined;
+    }
+    if (
+      MCP_PATHS.has(normalizedPath) &&
+      options.jsonBody &&
+      typeof options.jsonBody === "object" &&
+      !Array.isArray(options.jsonBody)
+    ) {
+      const rpcBody = options.jsonBody as Record<string, unknown>;
+      const rpcMethod = typeof rpcBody.method === "string" ? rpcBody.method : "";
+      if (MCP_READ_ONLY_METHODS.has(rpcMethod)) {
+        return true;
+      }
+      if (
+        rpcMethod === "tools/call" &&
+        rpcBody.params &&
+        typeof rpcBody.params === "object" &&
+        !Array.isArray(rpcBody.params)
+      ) {
+        const params = rpcBody.params as Record<string, unknown>;
+        const toolName = typeof params.name === "string" ? params.name : "";
+        if (MCP_READ_ONLY_TOOLS.has(toolName)) {
+          return true;
+        }
+        if (MCP_KEYED_WRITE_TOOLS.has(toolName)) {
+          return (
+            extractIdempotencyKey({
+              headers: options.headers,
+              jsonBody: params.arguments,
+            }) !== undefined
+          );
+        }
+      }
+      return false;
     }
     return false;
   }

@@ -36,6 +36,35 @@ _KEYED_REMEMBER_PATHS: frozenset[str] = frozenset(
         "/api/v1/memory/remember/batch",
     }
 )
+_MCP_PATHS: frozenset[str] = frozenset({"/mcp", "/mcp/core", "/mcp/full", "/mcp/admin"})
+_MCP_READ_ONLY_METHODS: frozenset[str] = frozenset(
+    {
+        "ping",
+        "initialize",
+        "notifications/initialized",
+        "server/discover",
+        "tools/list",
+    }
+)
+_MCP_READ_ONLY_TOOLS: frozenset[str] = frozenset(
+    {
+        "memory_episodic_tail",
+        "memory_recall",
+        "memory_search",
+        "memory_get",
+        "memory_status",
+        "memory_context_pack",
+        "memory_why_not",
+        "memory_introspect",
+        "memory_federated_recall",
+    }
+)
+_MCP_KEYED_WRITE_TOOLS: frozenset[str] = frozenset(
+    {
+        "memory_episodic_remember",
+        "memory_remember",
+    }
+)
 
 
 def is_valid_idempotency_key(value: Any) -> bool:
@@ -129,6 +158,27 @@ def is_idempotent_request(
             return True
         if normalized_path in _KEYED_REMEMBER_PATHS:
             return extract_idempotency_key(headers=headers, json_body=json_body) is not None
+        if normalized_path in _MCP_PATHS and isinstance(json_body, Mapping):
+            rpc_method = json_body.get("method")
+            if rpc_method in _MCP_READ_ONLY_METHODS:
+                return True
+            if rpc_method == "tools/call":
+                params = json_body.get("params")
+                if not isinstance(params, Mapping):
+                    return False
+                tool_name = params.get("name")
+                if tool_name in _MCP_READ_ONLY_TOOLS:
+                    return True
+                if tool_name in _MCP_KEYED_WRITE_TOOLS:
+                    args = params.get("arguments")
+                    return (
+                        extract_idempotency_key(
+                            headers=headers,
+                            json_body=args if isinstance(args, Mapping) else None,
+                        )
+                        is not None
+                    )
+            return False
         return False
 
     return False

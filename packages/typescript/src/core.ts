@@ -3,6 +3,7 @@ import {
   RequestTimeoutError,
   ServerError,
   TransportError,
+  UnsupportedCapabilityError,
   ValidationError,
 } from "./errors";
 import {
@@ -40,6 +41,87 @@ function isFailOpenError(err: unknown): boolean {
 
 function degradedRecall(query: string): Record<string, unknown> {
   return { query, count: 0, results: [], degraded: true };
+}
+
+function degradedList(): Record<string, unknown> {
+  return {
+    items: [],
+    rows: [],
+    total: 0,
+    total_count: 0,
+    has_more: false,
+    next_cursor: null,
+    degraded: true,
+  };
+}
+
+function degradedEpisodicTail(threadKey: string): Record<string, unknown> {
+  return {
+    status: "ok",
+    thread_key: threadKey,
+    count: 0,
+    turns: [],
+    degraded: true,
+  };
+}
+
+export interface ListMemoriesOptions {
+  tier?: string;
+  userId?: string;
+  appNamespace?: string;
+  headerNamespace?: string;
+  bodyNamespace?: string;
+  sessionId?: string;
+  threadId?: string;
+  tupleSegments?: readonly string[];
+  tags?: readonly string[];
+  domain?: string;
+  tombstoned?: boolean;
+  search?: string;
+  limit?: number;
+  cursor?: string;
+  page?: number;
+  pageSize?: number;
+  minImportance?: number;
+  minValence?: number;
+  maxValence?: number;
+  metadataFilter?: Record<string, unknown>;
+  timeoutMs?: number;
+  failOpen?: boolean;
+  headers?: Record<string, string>;
+}
+
+export interface EpisodicRememberOptions {
+  threadKey?: string;
+  role?: string;
+  userId?: string;
+  appNamespace?: string;
+  headerNamespace?: string;
+  bodyNamespace?: string;
+  agentId?: string;
+  sessionId?: string;
+  threadId?: string;
+  tupleSegments?: readonly string[];
+  tags?: readonly string[];
+  domain?: string;
+  idempotencyKey?: string;
+  mcpProfile?: string;
+  headers?: Record<string, string>;
+}
+
+export interface EpisodicTailOptions {
+  threadKey?: string;
+  limit?: number;
+  userId?: string;
+  appNamespace?: string;
+  headerNamespace?: string;
+  bodyNamespace?: string;
+  sessionId?: string;
+  threadId?: string;
+  mcpProfile?: string;
+  timeoutMs?: number;
+  failOpen?: boolean;
+  headers?: Record<string, string>;
 }
 
 export interface EbbmemIntegrationCoreOptions {
@@ -231,6 +313,134 @@ export class EbbmemIntegrationCore {
         const errMsg = err instanceof Error ? err.message : String(err);
         this.logWarning(`recall degraded error=${errName}: ${errMsg}`);
         return degradedRecall(query);
+      }
+      throw err;
+    }
+  }
+
+  async listMemories(options: ListMemoriesOptions = {}): Promise<Record<string, unknown>> {
+    if (typeof this.transport.listMemories !== "function") {
+      throw new UnsupportedCapabilityError("Configured transport does not implement listMemories");
+    }
+    const resolved = this.scope.resolve({
+      userId: options.userId,
+      appNamespace: options.appNamespace,
+      headerNamespace: options.headerNamespace,
+      bodyNamespace: options.bodyNamespace,
+      sessionId: options.sessionId,
+      threadId: options.threadId,
+      tupleSegments: options.tupleSegments,
+      tags: options.tags,
+      domain: options.domain,
+    });
+    const effectiveFailOpen = options.failOpen ?? this.failOpen;
+    try {
+      return await this.transport.listMemories({
+        namespace: resolved.namespace,
+        tier: options.tier,
+        tags: resolved.tags.length > 0 ? resolved.tags : undefined,
+        tombstoned: options.tombstoned ?? false,
+        search: options.search,
+        sessionId: resolved.sessionId,
+        limit: options.limit,
+        cursor: options.cursor,
+        page: options.page,
+        pageSize: options.pageSize,
+        minImportance: options.minImportance,
+        minValence: options.minValence,
+        maxValence: options.maxValence,
+        metadataFilter: options.metadataFilter,
+        timeoutMs: options.timeoutMs,
+        headers: options.headers,
+      });
+    } catch (err) {
+      if (effectiveFailOpen && isFailOpenError(err)) {
+        const errName = err instanceof Error ? err.name : "Error";
+        const errMsg = err instanceof Error ? err.message : String(err);
+        this.logWarning(`listMemories degraded error=${errName}: ${errMsg}`);
+        return degradedList();
+      }
+      throw err;
+    }
+  }
+
+  async episodicRemember(
+    content: string,
+    options: EpisodicRememberOptions = {},
+  ): Promise<Record<string, unknown>> {
+    if (typeof this.transport.episodicRemember !== "function") {
+      throw new UnsupportedCapabilityError(
+        "Configured transport does not implement episodicRemember",
+      );
+    }
+    const resolved = this.scope.resolve({
+      userId: options.userId,
+      appNamespace: options.appNamespace,
+      headerNamespace: options.headerNamespace,
+      bodyNamespace: options.bodyNamespace,
+      agentId: options.agentId,
+      sessionId: options.sessionId,
+      threadId: options.threadId,
+      tupleSegments: options.tupleSegments,
+      tags: options.tags,
+      domain: options.domain,
+    });
+    const effectiveThreadKey = options.threadKey ?? resolved.threadKey;
+    if (typeof effectiveThreadKey !== "string" || !effectiveThreadKey.trim()) {
+      throw new ValidationError("threadKey is required for episodicRemember");
+    }
+    const effectiveContent = this.redactBeforeRemember ? redactSecrets(content) : content;
+    let finalTags = rememberTagsWithDomain(resolved);
+    if (this.redactBeforeRemember && finalTags.length > 0) {
+      finalTags = finalTags.map((t) => redactSecrets(t));
+    }
+    return this.transport.episodicRemember({
+      threadKey: effectiveThreadKey.trim(),
+      sessionId: resolved.sessionId,
+      content: effectiveContent,
+      role: options.role ?? "user",
+      tags: finalTags,
+      namespace: resolved.namespace,
+      idempotencyKey: options.idempotencyKey,
+      mcpProfile: options.mcpProfile ?? "full",
+      headers: options.headers,
+    });
+  }
+
+  async episodicTail(options: EpisodicTailOptions = {}): Promise<Record<string, unknown>> {
+    if (typeof this.transport.episodicTail !== "function") {
+      throw new UnsupportedCapabilityError("Configured transport does not implement episodicTail");
+    }
+    const resolved = this.scope.resolve({
+      userId: options.userId,
+      appNamespace: options.appNamespace,
+      headerNamespace: options.headerNamespace,
+      bodyNamespace: options.bodyNamespace,
+      sessionId: options.sessionId,
+      threadId: options.threadId,
+    });
+    const effectiveThreadKey = options.threadKey ?? resolved.threadKey;
+    if (typeof effectiveThreadKey !== "string" || !effectiveThreadKey.trim()) {
+      throw new ValidationError("threadKey is required for episodicTail");
+    }
+    const cleanThreadKey = effectiveThreadKey.trim();
+    const effectiveFailOpen = options.failOpen ?? this.failOpen;
+    try {
+      return await this.transport.episodicTail({
+        threadKey: cleanThreadKey,
+        sessionId: resolved.sessionId,
+        limit: options.limit ?? 10,
+        namespace: resolved.namespace,
+        mcpProfile: options.mcpProfile ?? "full",
+        timeoutMs: options.timeoutMs,
+        headers: options.headers,
+      });
+    } catch (err) {
+      if (effectiveFailOpen && isFailOpenError(err)) {
+        const errName = err instanceof Error ? err.name : "Error";
+        const errMsg = err instanceof Error ? err.message : String(err);
+        this.logWarning(`episodicTail degraded error=${errName}: ${errMsg}`);
+        return degradedEpisodicTail(cleanThreadKey);
       }
       throw err;
     }

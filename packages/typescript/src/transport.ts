@@ -8,7 +8,7 @@ import {
   RequestTimeoutError,
   ServerError,
   TransportError,
-  UnsupportedCapabilityError,
+  ValidationError,
 } from "./errors";
 import { DEFAULT_REINFORCE_DELTA, validateDelta } from "./reinforcement";
 import {
@@ -39,6 +39,9 @@ export interface SdkCapabilities {
   exactKeyDelete: boolean;
   metadataFilterOnListRecall: boolean;
   namespacePrefixList: boolean;
+  listMemories?: boolean;
+  episodicRemember?: boolean;
+  episodicTail?: boolean;
   notes: readonly string[];
 }
 
@@ -91,10 +94,54 @@ export interface MemoryScopedParams {
   headers?: Record<string, string>;
 }
 
+export interface ListMemoriesParams {
+  namespace?: string;
+  tier?: string;
+  tags?: readonly string[];
+  tombstoned?: boolean;
+  search?: string;
+  sessionId?: string;
+  limit?: number;
+  cursor?: string;
+  page?: number;
+  pageSize?: number;
+  minImportance?: number;
+  minValence?: number;
+  maxValence?: number;
+  metadataFilter?: Record<string, unknown>;
+  timeoutMs?: number;
+  headers?: Record<string, string>;
+}
+
+export interface EpisodicRememberParams {
+  threadKey?: string;
+  sessionId?: string;
+  content: string;
+  role?: string;
+  tags?: readonly string[];
+  namespace?: string;
+  idempotencyKey?: string;
+  mcpProfile?: string;
+  headers?: Record<string, string>;
+}
+
+export interface EpisodicTailParams {
+  threadKey?: string;
+  sessionId?: string;
+  limit?: number;
+  namespace?: string;
+  mcpProfile?: string;
+  timeoutMs?: number;
+  headers?: Record<string, string>;
+}
+
 export interface EbbmemTransport {
   readonly capabilities: SdkCapabilities;
   remember(params: RememberParams): Promise<Record<string, unknown>>;
   recall(params: RecallParams): Promise<Record<string, unknown>>;
+  listMemories?(params?: ListMemoriesParams): Promise<Record<string, unknown>>;
+  episodicRemember?(params: EpisodicRememberParams): Promise<Record<string, unknown>>;
+  episodicTail?(params?: EpisodicTailParams): Promise<Record<string, unknown>>;
   reinforce(params: ReinforceParams): Promise<Record<string, unknown>>;
   get(memoryId: string, params?: MemoryScopedParams): Promise<Record<string, unknown>>;
   forget(memoryId: string, params?: MemoryScopedParams): Promise<Record<string, unknown>>;
@@ -103,12 +150,12 @@ export interface EbbmemTransport {
   health(): Promise<Record<string, unknown>>;
 }
 
-function hasHeaderCaseInsensitive(headers: Record<string, string>, name: string): boolean {
+export function hasHeaderCaseInsensitive(headers: Record<string, string>, name: string): boolean {
   const target = name.toLowerCase();
   return Object.keys(headers).some((k) => k.toLowerCase() === target);
 }
 
-function getHeaderCaseInsensitive(
+export function getHeaderCaseInsensitive(
   headers: Record<string, string> | undefined,
   name: string,
 ): string | undefined {
@@ -122,7 +169,7 @@ function getHeaderCaseInsensitive(
   return undefined;
 }
 
-function setHeaderCaseInsensitive(
+export function setHeaderCaseInsensitive(
   headers: Record<string, string>,
   name: string,
   value: string,
@@ -136,7 +183,7 @@ function setHeaderCaseInsensitive(
   headers[name] = value;
 }
 
-function setHeaderIfAbsentCaseInsensitive(
+export function setHeaderIfAbsentCaseInsensitive(
   headers: Record<string, string>,
   name: string,
   value: string,
@@ -146,13 +193,28 @@ function setHeaderIfAbsentCaseInsensitive(
   }
 }
 
-function httpErrorFromResponse(resp: HttpResponse): EbbmemApiError {
+export function httpErrorFromResponse(resp: HttpResponse): EbbmemApiError {
   const bodyObj =
     resp.body && typeof resp.body === "object" && !Array.isArray(resp.body)
       ? (resp.body as Record<string, unknown>)
       : {};
-  const code = typeof bodyObj.code === "string" ? bodyObj.code : undefined;
-  const detail = typeof bodyObj.detail === "string" ? bodyObj.detail : undefined;
+  const errObj =
+    bodyObj.error && typeof bodyObj.error === "object" && !Array.isArray(bodyObj.error)
+      ? (bodyObj.error as Record<string, unknown>)
+      : undefined;
+  let code = typeof bodyObj.code === "string" ? bodyObj.code : undefined;
+  if (!code && errObj) {
+    if (typeof errObj.code === "string") {
+      code = errObj.code;
+    } else if (errObj.data && typeof errObj.data === "object" && !Array.isArray(errObj.data)) {
+      const dataCode = (errObj.data as Record<string, unknown>).code;
+      if (typeof dataCode === "string") code = dataCode;
+    }
+  }
+  let detail = typeof bodyObj.detail === "string" ? bodyObj.detail : undefined;
+  if (!detail && errObj && typeof errObj.message === "string") {
+    detail = errObj.message;
+  }
   const retryAfterMs = parseRetryAfterMs(resp.headers);
   const msg = redactSecrets(
     `EbbMem HTTP ${resp.status}${code ? ` [${code}]` : ""}${detail ? `: ${detail}` : ""}`,
@@ -170,6 +232,61 @@ function httpErrorFromResponse(resp: HttpResponse): EbbmemApiError {
   }
   if (resp.status >= 500) return new ServerError(msg, opts);
   return new EbbmemApiError(msg, opts);
+}
+
+export function mcpErrorFromPayload(
+  status: number,
+  headers: Record<string, string>,
+  payload: Record<string, unknown>,
+): EbbmemApiError {
+  const errObj =
+    payload.error && typeof payload.error === "object" && !Array.isArray(payload.error)
+      ? (payload.error as Record<string, unknown>)
+      : {};
+  const rpcCode = errObj.code;
+  let effectiveStatus = status;
+  if (effectiveStatus < 400) {
+    if (rpcCode === -32003) effectiveStatus = 403;
+    else if (rpcCode === -32004 || rpcCode === -32601) effectiveStatus = 404;
+    else if (rpcCode === -32602) effectiveStatus = 422;
+    else effectiveStatus = 400;
+  }
+  return httpErrorFromResponse({ status: effectiveStatus, headers, body: payload });
+}
+
+export function extractMcpResultDict(payload: unknown): Record<string, unknown> {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return {};
+  }
+  const top = payload as Record<string, unknown>;
+  const result =
+    top.result && typeof top.result === "object" && !Array.isArray(top.result)
+      ? (top.result as Record<string, unknown>)
+      : top;
+  for (const key of ["structuredContent", "structured_content"]) {
+    const structured = result[key];
+    if (structured && typeof structured === "object" && !Array.isArray(structured)) {
+      return { ...(structured as Record<string, unknown>) };
+    }
+  }
+  if (Array.isArray(result.content)) {
+    for (const item of result.content) {
+      if (item && typeof item === "object" && !Array.isArray(item)) {
+        const text = (item as Record<string, unknown>).text;
+        if (typeof text === "string" && text.trim()) {
+          try {
+            const parsed = JSON.parse(text);
+            if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+              return parsed as Record<string, unknown>;
+            }
+          } catch {
+            continue;
+          }
+        }
+      }
+    }
+  }
+  return { ...result };
 }
 
 export interface FetchTransportOptions {
@@ -214,9 +331,13 @@ export class FetchTransport implements EbbmemTransport {
       exactKeyDelete: false,
       metadataFilterOnListRecall: false,
       namespacePrefixList: false,
+      listMemories: true,
+      episodicRemember: true,
+      episodicTail: true,
       notes: [
-        "Built-in fetch transport supports full IC-1 REST verbs; P0-09 exact-key lookup/delete, " +
-          "metadata filters, and namespace listing are not yet enabled on the base transport.",
+        "Built-in fetch transport supports full IC-1 REST verbs, listMemories, and MCP " +
+          "episodicRemember/episodicTail; P0-09 exact-key lookup/delete and namespace listing " +
+          "are not yet enabled on the base transport.",
       ],
     };
   }
@@ -518,593 +639,123 @@ export class FetchTransport implements EbbmemTransport {
   async health(): Promise<Record<string, unknown>> {
     return this.callJson("GET", "/healthz");
   }
-}
 
-export type SdkInitOverride =
-  | RequestInit
-  | ((requestContext: {
-      init: { headers?: Record<string, string>; [key: string]: unknown };
-      context: unknown;
-    }) => Promise<RequestInit>);
-
-/**
- * Structural contract matching released @ebbmem/client v0.2.0.
- */
-export interface SdkRawMemoryApiLike {
-  remember?(
-    req: {
-      rememberRequestModel: Record<string, unknown>;
-      xEbbNamespace?: string;
-      idempotencyKey?: string;
-    },
-    initOverrides?: SdkInitOverride,
-  ): Promise<unknown>;
-  recall?(
-    req: { recallRequestModel: Record<string, unknown>; xEbbNamespace?: string },
-    initOverrides?: SdkInitOverride,
-  ): Promise<unknown>;
-  reinforce?(
-    req: { reinforceRequestModel: Record<string, unknown>; xEbbNamespace?: string },
-    initOverrides?: SdkInitOverride,
-  ): Promise<unknown>;
-  getMemory?(
-    req: { memoryId: string; xEbbNamespace?: string },
-    initOverrides?: SdkInitOverride,
-  ): Promise<unknown>;
-  forgetMemory?(
-    req: { memoryId: string; purge?: boolean; xEbbNamespace?: string },
-    initOverrides?: SdkInitOverride,
-  ): Promise<unknown>;
-  purgeMemory?(
-    req: { memoryId: string; xEbbNamespace?: string },
-    initOverrides?: SdkInitOverride,
-  ): Promise<unknown>;
-  status?(
-    req: { xEbbNamespace?: string },
-    initOverrides?: SdkInitOverride,
-  ): Promise<unknown>;
-  getByKey?(
-    req: { key: string; xEbbNamespace?: string },
-    initOverrides?: SdkInitOverride,
-  ): Promise<unknown>;
-  deleteByKey?(
-    req: { key: string; xEbbNamespace?: string },
-    initOverrides?: SdkInitOverride,
-  ): Promise<unknown>;
-  listNamespaces?(
-    req: { prefix?: string },
-    initOverrides?: SdkInitOverride,
-  ): Promise<unknown>;
-}
-
-export interface SdkClientLike {
-  config?: {
-    baseUrl?: string;
-    token?: string;
-    apiKey?: string;
-    namespace?: string;
-  };
-  baseUrl?: string;
-  token?: string;
-  apiKey?: string;
-  supportsRecallFilters?: boolean;
-  supportsMetadataFilter?: boolean;
-  invoke?<T>(name: string, op: () => Promise<T>, idempotencyKey?: string): Promise<T>;
-  health?(): Promise<unknown>;
-  memory: {
-    remember(content: string, options?: Record<string, unknown>): Promise<unknown>;
-    recall(query: string, options?: Record<string, unknown>): Promise<unknown>;
-    get(memoryId: string): Promise<unknown>;
-    forget(memoryId: string, purge?: boolean): Promise<unknown>;
-    reinforce(memoryId: string, delta?: number): Promise<unknown>;
-    status(): Promise<unknown>;
-  };
-  raw?: {
-    memory?: SdkRawMemoryApiLike;
-  };
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    return value as Record<string, unknown>;
-  }
-  return {};
-}
-
-function buildSdkInitOverrides(
-  headers?: Record<string, string>,
-  timeoutMs?: number,
-): SdkInitOverride | undefined {
-  const hasHeaders = Boolean(headers && Object.keys(headers).length > 0);
-  if (!hasHeaders && timeoutMs === undefined) {
-    return undefined;
-  }
-  return async ({ init }) => {
-    const next: RequestInit = { ...init };
-    if (hasHeaders && headers) {
-      const merged = new Headers(init.headers as HeadersInit | undefined);
-      for (const [k, v] of Object.entries(headers)) {
-        merged.set(k, v);
-      }
-      next.headers = merged;
-    }
-    if (
-      timeoutMs !== undefined &&
-      !next.signal &&
-      typeof AbortSignal !== "undefined" &&
-      typeof AbortSignal.timeout === "function"
-    ) {
-      next.signal = AbortSignal.timeout(timeoutMs);
-    }
-    return next;
-  };
-}
-
-function translateSdkError(err: unknown): EbbmemApiError {
-  if (err instanceof EbbmemApiError) return err;
-  const anyErr = err as {
-    name?: string;
-    status?: number;
-    code?: string;
-    retryAfter?: number;
-    message?: string;
-    body?: unknown;
-  };
-  const status = typeof anyErr?.status === "number" ? anyErr.status : undefined;
-  const code = typeof anyErr?.code === "string" ? anyErr.code : undefined;
-  const msg = redactSecrets(anyErr?.message ?? String(err));
-  const opts = {
-    status,
-    code,
-    retryAfterMs: typeof anyErr?.retryAfter === "number" ? anyErr.retryAfter * 1000 : undefined,
-    body: anyErr?.body,
-  };
-  if (status === 401 || status === 403) return new AuthError(msg, opts);
-  if (status === 404) return new NotFoundError(msg, opts);
-  if (status === 409 || status === 410) return new IdempotencyConflictError(msg, opts);
-  if (status === 429) return new RateLimitError(msg, opts);
-  if (status === 400 || status === 422) {
-    if (code && code.startsWith("EBB-100-02") && code !== "EBB-100-023") {
-      return new IdempotencyConflictError(msg, opts);
-    }
-    return new ApiValidationError(msg, opts);
-  }
-  if (status !== undefined && status >= 500) return new ServerError(msg, opts);
-  if (err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError")) {
-    return new RequestTimeoutError(msg, opts);
-  }
-  if ((err instanceof Error && err.name === "ConnectionError") || anyErr?.name === "ConnectionError") {
-    return new TransportError(msg, opts);
-  }
-  return new EbbmemApiError(msg, opts);
-}
-
-export interface SdkTransportAdapterOptions {
-  baseUrl?: string;
-  bearerToken?: string;
-  apiKey?: string;
-}
-
-/**
- * Capability-aware adapter wrapping @ebbmem/client v0.2.0.
- *
- * Bridges v0.2.0 facade gaps via client.raw.memory where RecallRequestModel / RememberRequestModel /
- * ReinforceRequestModel accept IC-1 fields, enforces delta=0.1 default (v0.2.0 facade defaulted to 1),
- * and throws UnsupportedCapabilityError for unmerged P0-09/P0-11 gaps.
- */
-export class SdkTransportAdapter implements EbbmemTransport {
-  readonly capabilities: SdkCapabilities;
-  private readonly sdk: SdkClientLike;
-
-  constructor(sdkClient: SdkClientLike, options: SdkTransportAdapterOptions = {}) {
-    const baseUrl = options.baseUrl ?? sdkClient.config?.baseUrl ?? sdkClient.baseUrl;
-    if (baseUrl) {
-      validateBaseUrl(baseUrl);
-    }
-    validateAuthCredentials({
-      bearerToken: options.bearerToken ?? sdkClient.config?.token ?? sdkClient.token,
-      apiKey: options.apiKey ?? sdkClient.config?.apiKey ?? sdkClient.apiKey,
-    });
-
-    this.sdk = sdkClient;
-    const rawMem = sdkClient.raw?.memory;
-    const hasRaw = Boolean(rawMem);
-    this.capabilities = {
-      tierOnRemember: hasRaw && typeof rawMem?.remember === "function",
-      sessionIdOnRemember: hasRaw && typeof rawMem?.remember === "function",
-      metadataOnRemember: hasRaw && typeof rawMem?.remember === "function",
-      recallFilters: Boolean(sdkClient.supportsRecallFilters),
-      recallBreakdownAndId: true,
-      reinforceUsedIdsAndRecallId: hasRaw && typeof rawMem?.reinforce === "function",
-      reinforceDefaultDelta01: true,
-      deterministicIdempotencyKey: true,
-      exactKeyGet: typeof rawMem?.getByKey === "function",
-      exactKeyDelete: typeof rawMem?.deleteByKey === "function",
-      metadataFilterOnListRecall: Boolean(sdkClient.supportsMetadataFilter),
-      namespacePrefixList: typeof rawMem?.listNamespaces === "function",
-      notes: [
-        "Released @ebbmem/client v0.2.0 facade omits tier/session_id/metadata on remember, " +
-          "profile/min_score/domain on recall, and used_ids/recall_id on reinforce (where " +
-          "facade delta defaults to 1). Adapter bridges these via raw.memory when available, " +
-          "while P0-09 APIs (getByKey, deleteByKey, metadataFilter, listNamespaces) and " +
-          "recall tier/tags/session_id filters raise UnsupportedCapabilityError when absent.",
-      ],
+  async listMemories(params: ListMemoriesParams = {}): Promise<Record<string, unknown>> {
+    const reqHeaders: Record<string, string> = { ...(params.headers ?? {}) };
+    const query: Record<string, string> = {
+      tombstoned: params.tombstoned ? "true" : "false",
     };
-  }
-
-  private async runOp<T>(
-    name: string,
-    op: () => Promise<T>,
-    idempotencyKey?: string,
-  ): Promise<T> {
-    try {
-      if (this.sdk.invoke) {
-        return await this.sdk.invoke(name, op, idempotencyKey);
-      }
-      return await op();
-    } catch (err) {
-      throw translateSdkError(err);
+    if (params.limit !== undefined) query.limit = String(params.limit);
+    if (params.namespace !== undefined) {
+      setHeaderIfAbsentCaseInsensitive(reqHeaders, "X-Ebb-Namespace", params.namespace);
+      query.namespace = params.namespace;
     }
+    if (params.tier !== undefined) query.tier = params.tier;
+    if (params.tags && params.tags.length > 0) query.tags = params.tags.join(",");
+    if (params.search !== undefined) query.search = params.search;
+    if (params.sessionId !== undefined) query.session_id = params.sessionId;
+    if (params.cursor !== undefined) query.cursor = params.cursor;
+    if (params.page !== undefined) query.page = String(params.page);
+    if (params.pageSize !== undefined) query.page_size = String(params.pageSize);
+    if (params.minImportance !== undefined) query.min_importance = String(params.minImportance);
+    if (params.minValence !== undefined) query.min_valence = String(params.minValence);
+    if (params.maxValence !== undefined) query.max_valence = String(params.maxValence);
+    if (params.metadataFilter !== undefined) {
+      query.metadata_filter = JSON.stringify(params.metadataFilter);
+    }
+    return this.callJson("GET", "/api/v1/memory", {
+      headers: reqHeaders,
+      query,
+      timeoutMs: params.timeoutMs,
+    });
   }
 
-  async remember(params: RememberParams): Promise<Record<string, unknown>> {
+  private async callMcpTool(
+    toolName: string,
+    args: Record<string, unknown>,
+    options: {
+      namespace?: string;
+      mcpProfile?: string;
+      idempotencyKey?: string;
+      timeoutMs?: number;
+      headers?: Record<string, string>;
+    } = {},
+  ): Promise<Record<string, unknown>> {
+    const profile = options.mcpProfile ?? "full";
+    if (profile !== "core" && profile !== "full" && profile !== "admin") {
+      throw new ValidationError(`Invalid mcpProfile: ${profile}`);
+    }
+    const reqHeaders: Record<string, string> = { ...(options.headers ?? {}) };
+    setHeaderCaseInsensitive(reqHeaders, "Accept", "application/json, text/event-stream");
+    setHeaderIfAbsentCaseInsensitive(reqHeaders, "MCP-Protocol-Version", "2026-07-28");
+    setHeaderCaseInsensitive(reqHeaders, "Mcp-Method", "tools/call");
+    setHeaderCaseInsensitive(reqHeaders, "Mcp-Name", toolName);
+    setHeaderIfAbsentCaseInsensitive(reqHeaders, "X-Ebb-MCP-Profile", profile);
+    if (options.namespace !== undefined) {
+      setHeaderIfAbsentCaseInsensitive(reqHeaders, "X-Ebb-Namespace", options.namespace);
+    }
+    if (options.idempotencyKey !== undefined) {
+      validateIdempotencyKey(options.idempotencyKey);
+      setHeaderIfAbsentCaseInsensitive(reqHeaders, "Idempotency-Key", options.idempotencyKey);
+    }
+    const rpcBody = {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: { name: toolName, arguments: args },
+    };
+    const resp = await this.requestWithRetry("POST", `/mcp/${profile}`, {
+      jsonBody: rpcBody,
+      headers: reqHeaders,
+      timeoutMs: options.timeoutMs,
+    });
+    if (resp.status >= 400) {
+      throw httpErrorFromResponse(resp);
+    }
+    if (resp.body && typeof resp.body === "object" && !Array.isArray(resp.body)) {
+      const bodyObj = resp.body as Record<string, unknown>;
+      if (bodyObj.error !== undefined && bodyObj.error !== null) {
+        throw mcpErrorFromPayload(resp.status, resp.headers, bodyObj);
+      }
+    }
+    return extractMcpResultDict(resp.body);
+  }
+
+  async episodicRemember(params: EpisodicRememberParams): Promise<Record<string, unknown>> {
+    const args: Record<string, unknown> = {
+      content: params.content,
+      role: params.role ?? "user",
+    };
+    if (params.threadKey !== undefined) args.thread_key = params.threadKey;
+    if (params.sessionId !== undefined) args.session_id = params.sessionId;
+    if (params.tags !== undefined) args.tags = [...params.tags];
+    if (params.namespace !== undefined) args.namespace = params.namespace;
     if (params.idempotencyKey !== undefined) {
       validateIdempotencyKey(params.idempotencyKey);
+      args.idempotency_key = params.idempotencyKey;
     }
-    const headerIdempotencyKey = getHeaderCaseInsensitive(params.headers, "idempotency-key");
-    const invokeIdempotencyKey =
-      params.idempotencyKey ?? (headerIdempotencyKey ? headerIdempotencyKey : undefined);
-    const rawMem = this.sdk.raw?.memory;
-    if (rawMem && typeof rawMem.remember === "function") {
-      const model: Record<string, unknown> = {
-        content: params.content,
-        tier: params.tier ?? "semantic",
-      };
-      if (params.tags !== undefined) model.tags = [...params.tags];
-      if (params.importance !== undefined) model.importance = params.importance;
-      if (params.valence !== undefined) model.valence = params.valence;
-      if (params.arousal !== undefined) model.arousal = params.arousal;
-      if (params.sessionId !== undefined) model.session_id = params.sessionId;
-      if (params.timestampMs !== undefined) model.timestamp_ms = params.timestampMs;
-      if (params.namespace !== undefined) model.namespace = params.namespace;
-      if (params.metadata !== undefined) model.metadata = { ...params.metadata };
-      if (params.idempotencyKey !== undefined) model.idempotency_key = params.idempotencyKey;
-
-      const initOverrides = buildSdkInitOverrides(params.headers);
-      const res = await this.runOp(
-        "remember",
-        () =>
-          initOverrides
-            ? rawMem.remember!(
-                {
-                  rememberRequestModel: model,
-                  xEbbNamespace: params.namespace,
-                  idempotencyKey: params.idempotencyKey,
-                },
-                initOverrides,
-              )
-            : rawMem.remember!({
-                rememberRequestModel: model,
-                xEbbNamespace: params.namespace,
-                idempotencyKey: params.idempotencyKey,
-              }),
-        invokeIdempotencyKey,
-      );
-      return asRecord(res);
-    }
-
-    if (
-      (params.tier !== undefined && params.tier !== "semantic") ||
-      params.namespace !== undefined ||
-      params.sessionId !== undefined ||
-      params.metadata !== undefined ||
-      params.valence !== undefined ||
-      params.arousal !== undefined ||
-      params.timestampMs !== undefined ||
-      (params.headers !== undefined && Object.keys(params.headers).length > 0)
-    ) {
-      throw new UnsupportedCapabilityError(
-        "Wrapped @ebbmem/client lacks raw.memory.remember needed for IC-1 remember fields/headers",
-      );
-    }
-    try {
-      const res = await this.sdk.memory.remember(params.content, {
-        tags: params.tags ? [...params.tags] : undefined,
-        importance: params.importance,
-        idempotencyKey: params.idempotencyKey,
-      });
-      return asRecord(res);
-    } catch (err) {
-      throw translateSdkError(err);
-    }
+    return this.callMcpTool("memory_episodic_remember", args, {
+      namespace: params.namespace,
+      mcpProfile: params.mcpProfile,
+      idempotencyKey: params.idempotencyKey,
+      headers: params.headers,
+    });
   }
 
-  async recall(params: RecallParams): Promise<Record<string, unknown>> {
-    if (
-      (params.tier !== undefined ||
-        (params.tags && params.tags.length > 0) ||
-        params.sessionId !== undefined) &&
-      !this.capabilities.recallFilters
-    ) {
-      throw new UnsupportedCapabilityError(
-        "Released @ebbmem/client v0.2.0 RecallRequestModel lacks tier/tags/session_id filters",
-      );
-    }
-    const rawMem = this.sdk.raw?.memory;
-    if (rawMem && typeof rawMem.recall === "function") {
-      const model: Record<string, unknown> = {
-        query: params.query,
-        limit: params.limit ?? 10,
-        reinforce: false,
-      };
-      if (params.profile !== undefined) model.profile = params.profile;
-      if (params.minScore !== undefined) model.min_score = params.minScore;
-      if (params.domain !== undefined) model.domain = params.domain;
-      if (params.namespace !== undefined) model.namespace = params.namespace;
-      if (this.capabilities.recallFilters) {
-        if (params.tier !== undefined) model.tier = params.tier;
-        if (params.tags && params.tags.length > 0) model.tags = [...params.tags];
-        if (params.sessionId !== undefined) model.session_id = params.sessionId;
-      }
-      const initOverrides = buildSdkInitOverrides(params.headers, params.timeoutMs);
-      const res = await this.runOp("recall", () =>
-        initOverrides
-          ? rawMem.recall!(
-              {
-                recallRequestModel: model,
-                xEbbNamespace: params.namespace,
-              },
-              initOverrides,
-            )
-          : rawMem.recall!({
-              recallRequestModel: model,
-              xEbbNamespace: params.namespace,
-            }),
-      );
-      return asRecord(res);
-    }
-    if (
-      params.namespace !== undefined ||
-      params.profile !== undefined ||
-      params.minScore !== undefined ||
-      params.domain !== undefined ||
-      params.tier !== undefined ||
-      (params.tags && params.tags.length > 0) ||
-      params.sessionId !== undefined ||
-      params.timeoutMs !== undefined ||
-      (params.headers !== undefined && Object.keys(params.headers).length > 0)
-    ) {
-      throw new UnsupportedCapabilityError(
-        "Wrapped @ebbmem/client lacks raw.memory.recall needed for IC-1 recall fields/headers",
-      );
-    }
-    try {
-      const res = await this.sdk.memory.recall(params.query, { limit: params.limit });
-      return asRecord(res);
-    } catch (err) {
-      throw translateSdkError(err);
-    }
-  }
-
-  async reinforce(params: ReinforceParams): Promise<Record<string, unknown>> {
-    const validatedDelta = validateDelta(params.delta ?? DEFAULT_REINFORCE_DELTA);
-    const rawMem = this.sdk.raw?.memory;
-    if (rawMem && typeof rawMem.reinforce === "function") {
-      const model: Record<string, unknown> = {
-        memory_id: params.memoryId,
-        delta: validatedDelta,
-      };
-      if (params.usedIds && params.usedIds.length > 0) model.used_ids = [...params.usedIds];
-      if (params.recallId !== undefined) model.recall_id = params.recallId;
-      if (params.namespace !== undefined) model.namespace = params.namespace;
-      const initOverrides = buildSdkInitOverrides(params.headers);
-      const res = await this.runOp("reinforce", () =>
-        initOverrides
-          ? rawMem.reinforce!(
-              {
-                reinforceRequestModel: model,
-                xEbbNamespace: params.namespace,
-              },
-              initOverrides,
-            )
-          : rawMem.reinforce!({
-              reinforceRequestModel: model,
-              xEbbNamespace: params.namespace,
-            }),
-      );
-      return asRecord(res);
-    }
-    if (
-      (params.usedIds && params.usedIds.length > 0) ||
-      params.recallId !== undefined ||
-      params.namespace !== undefined ||
-      (params.headers !== undefined && Object.keys(params.headers).length > 0)
-    ) {
-      throw new UnsupportedCapabilityError(
-        "Released @ebbmem/client v0.2.0 facade lacks used_ids/recall_id/namespace/headers on reinforce",
-      );
-    }
-    try {
-      const res = await this.sdk.memory.reinforce(params.memoryId, validatedDelta);
-      return asRecord(res);
-    } catch (err) {
-      throw translateSdkError(err);
-    }
-  }
-
-  async get(memoryId: string, params: MemoryScopedParams = {}): Promise<Record<string, unknown>> {
-    const rawMem = this.sdk.raw?.memory;
-    if (rawMem && typeof rawMem.getMemory === "function") {
-      const initOverrides = buildSdkInitOverrides(params.headers);
-      const res = await this.runOp("get", () =>
-        initOverrides
-          ? rawMem.getMemory!({ memoryId, xEbbNamespace: params.namespace }, initOverrides)
-          : rawMem.getMemory!({ memoryId, xEbbNamespace: params.namespace }),
-      );
-      return asRecord(res);
-    }
-    if (
-      params.namespace !== undefined ||
-      (params.headers !== undefined && Object.keys(params.headers).length > 0)
-    ) {
-      throw new UnsupportedCapabilityError(
-        "Wrapped @ebbmem/client lacks raw.memory.getMemory needed for namespace/headers",
-      );
-    }
-    try {
-      return asRecord(await this.sdk.memory.get(memoryId));
-    } catch (err) {
-      throw translateSdkError(err);
-    }
-  }
-
-  async forget(memoryId: string, params: MemoryScopedParams = {}): Promise<Record<string, unknown>> {
-    const rawMem = this.sdk.raw?.memory;
-    if (rawMem && typeof rawMem.forgetMemory === "function") {
-      const initOverrides = buildSdkInitOverrides(params.headers);
-      const res = await this.runOp("forget", () =>
-        initOverrides
-          ? rawMem.forgetMemory!(
-              { memoryId, purge: false, xEbbNamespace: params.namespace },
-              initOverrides,
-            )
-          : rawMem.forgetMemory!({ memoryId, purge: false, xEbbNamespace: params.namespace }),
-      );
-      return asRecord(res);
-    }
-    if (
-      params.namespace !== undefined ||
-      (params.headers !== undefined && Object.keys(params.headers).length > 0)
-    ) {
-      throw new UnsupportedCapabilityError(
-        "Wrapped @ebbmem/client lacks raw.memory.forgetMemory needed for namespace/headers",
-      );
-    }
-    try {
-      return asRecord(await this.sdk.memory.forget(memoryId, false));
-    } catch (err) {
-      throw translateSdkError(err);
-    }
-  }
-
-  async purge(memoryId: string, params: MemoryScopedParams = {}): Promise<Record<string, unknown>> {
-    const rawMem = this.sdk.raw?.memory;
-    if (rawMem && typeof rawMem.purgeMemory === "function") {
-      const initOverrides = buildSdkInitOverrides(params.headers);
-      const res = await this.runOp("purge", () =>
-        initOverrides
-          ? rawMem.purgeMemory!({ memoryId, xEbbNamespace: params.namespace }, initOverrides)
-          : rawMem.purgeMemory!({ memoryId, xEbbNamespace: params.namespace }),
-      );
-      const out = asRecord(res);
-      if (out.status === undefined && out.found !== false) {
-        out.status = "purged";
-      }
-      if (out.irreversible === undefined && out.status === "purged") {
-        out.irreversible = true;
-      }
-      return out;
-    }
-    if (rawMem && typeof rawMem.forgetMemory === "function") {
-      const initOverrides = buildSdkInitOverrides(params.headers);
-      const res = await this.runOp("purge", () =>
-        initOverrides
-          ? rawMem.forgetMemory!(
-              { memoryId, purge: true, xEbbNamespace: params.namespace },
-              initOverrides,
-            )
-          : rawMem.forgetMemory!({ memoryId, purge: true, xEbbNamespace: params.namespace }),
-      );
-      return asRecord(res);
-    }
-    if (
-      params.namespace !== undefined ||
-      (params.headers !== undefined && Object.keys(params.headers).length > 0)
-    ) {
-      throw new UnsupportedCapabilityError(
-        "Wrapped @ebbmem/client lacks raw.memory.forgetMemory needed for namespace/headers",
-      );
-    }
-    try {
-      return asRecord(await this.sdk.memory.forget(memoryId, true));
-    } catch (err) {
-      throw translateSdkError(err);
-    }
-  }
-
-  async status(params: MemoryScopedParams = {}): Promise<Record<string, unknown>> {
-    const rawMem = this.sdk.raw?.memory;
-    if (rawMem && typeof rawMem.status === "function") {
-      const initOverrides = buildSdkInitOverrides(params.headers);
-      const res = await this.runOp("status", () =>
-        initOverrides
-          ? rawMem.status!({ xEbbNamespace: params.namespace }, initOverrides)
-          : rawMem.status!({ xEbbNamespace: params.namespace }),
-      );
-      return asRecord(res);
-    }
-    if (
-      params.namespace !== undefined ||
-      (params.headers !== undefined && Object.keys(params.headers).length > 0)
-    ) {
-      throw new UnsupportedCapabilityError(
-        "Wrapped @ebbmem/client lacks raw.memory.status needed for namespace/headers",
-      );
-    }
-    try {
-      return asRecord(await this.sdk.memory.status());
-    } catch (err) {
-      throw translateSdkError(err);
-    }
-  }
-
-  async health(): Promise<Record<string, unknown>> {
-    if (!this.sdk.health) {
-      throw new UnsupportedCapabilityError("Wrapped SDK client does not expose health()");
-    }
-    try {
-      return asRecord(await this.sdk.health());
-    } catch (err) {
-      throw translateSdkError(err);
-    }
-  }
-
-  async getByKey(key: string, namespace?: string): Promise<Record<string, unknown>> {
-    const rawMem = this.sdk.raw?.memory;
-    if (!this.capabilities.exactKeyGet || !rawMem || typeof rawMem.getByKey !== "function") {
-      throw new UnsupportedCapabilityError(
-        "getByKey requires P0-09 exact-key APIs not present in @ebbmem/client v0.2.0",
-      );
-    }
-    return asRecord(
-      await this.runOp("getByKey", () => rawMem.getByKey!({ key, xEbbNamespace: namespace })),
-    );
-  }
-
-  async deleteByKey(key: string, namespace?: string): Promise<Record<string, unknown>> {
-    const rawMem = this.sdk.raw?.memory;
-    if (!this.capabilities.exactKeyDelete || !rawMem || typeof rawMem.deleteByKey !== "function") {
-      throw new UnsupportedCapabilityError(
-        "deleteByKey requires P0-09 exact-key APIs not present in @ebbmem/client v0.2.0",
-      );
-    }
-    return asRecord(
-      await this.runOp("deleteByKey", () => rawMem.deleteByKey!({ key, xEbbNamespace: namespace })),
-    );
-  }
-
-  async listNamespaces(prefix?: string): Promise<string[]> {
-    const rawMem = this.sdk.raw?.memory;
-    if (
-      !this.capabilities.namespacePrefixList ||
-      !rawMem ||
-      typeof rawMem.listNamespaces !== "function"
-    ) {
-      throw new UnsupportedCapabilityError(
-        "listNamespaces requires P0-09 namespace-prefix API not in @ebbmem/client v0.2.0",
-      );
-    }
-    const res = await this.runOp("listNamespaces", () => rawMem.listNamespaces!({ prefix }));
-    return Array.isArray(res) ? res.map(String) : [];
+  async episodicTail(params: EpisodicTailParams = {}): Promise<Record<string, unknown>> {
+    const args: Record<string, unknown> = {
+      limit: params.limit ?? 10,
+    };
+    if (params.threadKey !== undefined) args.thread_key = params.threadKey;
+    if (params.sessionId !== undefined) args.session_id = params.sessionId;
+    if (params.namespace !== undefined) args.namespace = params.namespace;
+    return this.callMcpTool("memory_episodic_tail", args, {
+      namespace: params.namespace,
+      mcpProfile: params.mcpProfile,
+      timeoutMs: params.timeoutMs,
+      headers: params.headers,
+    });
   }
 }
+
+export * from "./sdk_adapter";

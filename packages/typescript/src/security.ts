@@ -46,7 +46,7 @@ const BEARER_RE = /\b(Bearer\s+)(?!Bearer\b)(?!\[REDACTED\])[A-Za-z0-9._~+/-]+=*
 const QUERY_CRED_RE = /([?&](?:token|api_key|access_token|key)=)[^&\s#"']+/gi;
 const JWT_RE = /\beyJ[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]*\b/g;
 const KEY_PREFIX_RE =
-  /\b(?:ebb_[A-Za-z0-9_-]+|sk-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9_]{16,}|github_pat_[A-Za-z0-9_]{16,})\b/g;
+  /\b(?:ebb_[A-Za-z0-9_-]+|sk-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9_]{16,}|github_pat_[A-Za-z0-9_]{16,}|AKIA[0-9A-Z]{16})\b/g;
 const KV_SECRET_RE =
   /((?:["']?(?:password|secret_key|secret|access_token|refresh_token|bearer_token|id_token|auth_token|token|api_secret|api_key|api-key|authorization|cookie|credential|private_key|client_secret)["']?)\s*[=:]\s*)(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^\s,;&}"']+)/gi;
 

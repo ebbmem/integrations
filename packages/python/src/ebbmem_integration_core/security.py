@@ -57,7 +57,8 @@ _QUERY_CRED_RE = re.compile(
 _PEM_RE = re.compile(r"-----BEGIN [A-Z0-9 _-]+-----[\s\S]+?-----END [A-Z0-9 _-]+-----")
 _JWT_RE = re.compile(r"\beyJ[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]*\b")
 _KEY_PREFIX_RE = re.compile(
-    r"\b(?:ebb_[A-Za-z0-9_-]+|sk-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9_]{16,}|github_pat_[A-Za-z0-9_]{16,})\b"
+    r"\b(?:ebb_[A-Za-z0-9_-]+|sk-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9_]{16,}"
+    r"|github_pat_[A-Za-z0-9_]{16,}|AKIA[0-9A-Z]{16})\b"
 )
 _KV_SECRET_RE = re.compile(
     r"""((?:["']?(?:password|secret_key|secret|access_token|refresh_token|bearer_token|id_token|auth_token|token|api_secret|api_key|api-key|authorization|cookie|credential|private_key|client_secret)["']?)\s*[=:]\s*)(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^\s,;&}"']+)""",
