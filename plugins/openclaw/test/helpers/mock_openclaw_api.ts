@@ -15,8 +15,20 @@ import {
   OpenClawToolResult,
 } from "../../src/openclaw-types.js";
 
+function flagToCamelCase(flags: string): string {
+  const longMatch = flags.match(/--([a-zA-Z0-9-]+)/);
+  if (!longMatch) {
+    throw new Error(`Invalid option flags '${flags}'; expected a --long-flag`);
+  }
+  return longMatch[1].replace(/-([a-zA-Z0-9])/g, (_m, c: string) => c.toUpperCase());
+}
+
 class MockCommanderNode implements CommanderCommandLike {
   readonly children = new Map<string, MockCommanderNode>();
+  readonly registeredOptions = new Map<
+    string,
+    { defaultValue?: unknown; parser?: (value: string, previous: unknown) => unknown }
+  >();
   private handler?: (opts: Record<string, unknown>) => void | Promise<void>;
 
   constructor(readonly name: string) {}
@@ -33,10 +45,22 @@ class MockCommanderNode implements CommanderCommandLike {
   }
 
   option(
-    _flags: string,
+    flags: string,
     _description?: string,
-    _defaultValue?: string | boolean,
+    defaultValueOrParser?: string | boolean | string[] | ((value: string, previous: any) => any),
+    defaultValue?: unknown,
   ): CommanderCommandLike {
+    const optName = flagToCamelCase(flags);
+    if (typeof defaultValueOrParser === "function") {
+      this.registeredOptions.set(optName, {
+        parser: defaultValueOrParser,
+        defaultValue,
+      });
+    } else {
+      this.registeredOptions.set(optName, {
+        defaultValue: defaultValueOrParser,
+      });
+    }
     return this;
   }
 
@@ -50,7 +74,40 @@ class MockCommanderNode implements CommanderCommandLike {
       if (!this.handler) {
         throw new Error(`CLI command '${this.name}' has no action handler`);
       }
-      await this.handler(opts);
+      const resolvedOpts: Record<string, unknown> = {};
+      for (const [key, spec] of this.registeredOptions.entries()) {
+        if (spec.defaultValue !== undefined) {
+          resolvedOpts[key] = Array.isArray(spec.defaultValue)
+            ? [...spec.defaultValue]
+            : spec.defaultValue;
+        }
+      }
+      for (const [key, val] of Object.entries(opts)) {
+        const spec = this.registeredOptions.get(key);
+        if (!spec) {
+          throw new Error(`Unknown CLI option '${key}' on command '${this.name}'`);
+        }
+        if (spec.parser && val !== undefined) {
+          if (Array.isArray(val)) {
+            resolvedOpts[key] = val.reduce(
+              (acc, item) => spec.parser!(String(item), acc),
+              spec.defaultValue !== undefined && Array.isArray(spec.defaultValue)
+                ? [...spec.defaultValue]
+                : spec.defaultValue,
+            );
+          } else {
+            resolvedOpts[key] = spec.parser(
+              String(val),
+              spec.defaultValue !== undefined && Array.isArray(spec.defaultValue)
+                ? [...spec.defaultValue]
+                : spec.defaultValue,
+            );
+          }
+        } else if (val !== undefined) {
+          resolvedOpts[key] = val;
+        }
+      }
+      await this.handler(resolvedOpts);
       return;
     }
     const [head, ...rest] = pathSegments;
