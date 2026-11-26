@@ -1,0 +1,442 @@
+{
+  "schema_version": "1.0",
+  "targets": [
+    {
+      "id": "copilot-vscode",
+      "target": "GitHub Copilot (VS Code)",
+      "mcp_remote": "Yes",
+      "mcp_local": "Yes",
+      "native_shape": "—",
+      "distribution": "`.vscode/mcp.json`, registry entry",
+      "notes": "[`hosts/vscode-copilot.md`](./hosts/vscode-copilot.md), [`configs/copilot/vscode.mcp.json`](../../configs/copilot/vscode.mcp.json), and [`registry/server.json`](../../registry/server.json) on `main`; untested live",
+      "evidence": {
+        "kind": "host-config",
+        "status": "available",
+        "mcp_supported": true,
+        "mcp_surface_validated": true,
+        "config_schema_validated": true,
+        "mock_results": { "passed": 0, "failed": 0, "required": 0 },
+        "live_results": { "passed": 0, "failed": 0, "required": 0 },
+        "invariants": {
+          "header_only_auth": true,
+          "telemetry_disabled_default": true,
+          "read_only_recall": true,
+          "injected_default_off": true,
+          "untrusted_framing": true,
+          "secret_redaction": true
+        }
+      }
+    },
+    {
+      "id": "copilot-cloud-agent",
+      "target": "GitHub Copilot cloud agent / code review",
+      "mcp_remote": "Yes (API key, no OAuth)",
+      "mcp_local": "No",
+      "native_shape": "—",
+      "distribution": "Repo settings snippet",
+      "notes": "[`configs/copilot/copilot-cloud-agent.mcp.json`](../../configs/copilot/copilot-cloud-agent.mcp.json) and [`hosts/vscode-copilot.md`](./hosts/vscode-copilot.md) on `main`; untested live",
+      "evidence": {
+        "kind": "host-config",
+        "status": "available",
+        "mcp_supported": true,
+        "mcp_surface_validated": true,
+        "config_schema_validated": true,
+        "mock_results": { "passed": 0, "failed": 0, "required": 0 },
+        "live_results": { "passed": 0, "failed": 0, "required": 0 },
+        "invariants": {
+          "header_only_auth": true,
+          "telemetry_disabled_default": true,
+          "read_only_recall": true,
+          "injected_default_off": true,
+          "untrusted_framing": true,
+          "secret_redaction": true
+        }
+      }
+    },
+    {
+      "id": "claude-code",
+      "target": "Claude Code / Claude Desktop",
+      "mcp_remote": "Yes",
+      "mcp_local": "Yes",
+      "native_shape": "—",
+      "distribution": "Plugin + marketplace",
+      "notes": "[`plugins/claude-code/`](../../plugins/claude-code/README.md), [`hosts/claude.md`](./hosts/claude.md), and [`instructions/claude-code/SKILL.md`](../../instructions/claude-code/SKILL.md) on `main`; hook tests against mock MCP; untested live",
+      "evidence": {
+        "kind": "host-plugin",
+        "status": "available",
+        "mcp_supported": true,
+        "mcp_surface_validated": true,
+        "config_schema_validated": true,
+        "mock_results": { "passed": 1, "failed": 0, "required": 0 },
+        "live_results": { "passed": 0, "failed": 0, "required": 0 },
+        "invariants": {
+          "header_only_auth": true,
+          "telemetry_disabled_default": true,
+          "read_only_recall": true,
+          "injected_default_off": true,
+          "untrusted_framing": true,
+          "secret_redaction": true
+        }
+      }
+    },
+    {
+      "id": "cursor",
+      "target": "Cursor",
+      "mcp_remote": "Yes",
+      "mcp_local": "Yes",
+      "native_shape": "—",
+      "distribution": "Install deeplink, plugin",
+      "notes": "[`plugins/cursor/`](../../plugins/cursor/README.md), [`hosts/cursor.md`](./hosts/cursor.md), and [`instructions/cursor/ebbmem.mdc`](../../instructions/cursor/ebbmem.mdc) on `main`; untested live",
+      "evidence": {
+        "kind": "host-plugin",
+        "status": "available",
+        "mcp_supported": true,
+        "mcp_surface_validated": true,
+        "config_schema_validated": true,
+        "mock_results": { "passed": 0, "failed": 0, "required": 0 },
+        "live_results": { "passed": 0, "failed": 0, "required": 0 },
+        "invariants": {
+          "header_only_auth": true,
+          "telemetry_disabled_default": true,
+          "read_only_recall": true,
+          "injected_default_off": true,
+          "untrusted_framing": true,
+          "secret_redaction": true
+        }
+      }
+    },
+    {
+      "id": "grok-xai",
+      "target": "Grok Bot / xAI API",
+      "mcp_remote": "Yes (public HTTPS)",
+      "mcp_local": "No",
+      "native_shape": "—",
+      "distribution": "Connector guide, API snippet",
+      "notes": "Requires public HTTPS `/mcp` endpoint",
+      "evidence": {
+        "kind": "recipe",
+        "status": "planned",
+        "mcp_supported": true,
+        "mcp_surface_validated": false,
+        "config_schema_validated": false,
+        "mock_results": { "passed": 0, "failed": 0, "required": 0 },
+        "live_results": { "passed": 0, "failed": 0, "required": 0 },
+        "invariants": {
+          "header_only_auth": true,
+          "telemetry_disabled_default": true,
+          "read_only_recall": true,
+          "injected_default_off": true,
+          "untrusted_framing": true,
+          "secret_redaction": true
+        }
+      }
+    },
+    {
+      "id": "langgraph",
+      "target": "LangGraph / LangChain / LangMem",
+      "mcp_remote": "Optional",
+      "mcp_local": "No",
+      "native_shape": "`BaseStore`, middleware, tools",
+      "distribution": "PyPI package",
+      "notes": "[`packages/langgraph-python/`](../../packages/langgraph-python/README.md) (`ebbmem-langgraph`) source and mock IC-1 tests on `main`; PyPI publish and live pending",
+      "evidence": {
+        "kind": "framework-adapter",
+        "status": "available",
+        "mcp_supported": false,
+        "mcp_surface_validated": false,
+        "config_schema_validated": true,
+        "mock_results": { "passed": 21, "failed": 0, "required": 21 },
+        "live_results": { "passed": 0, "failed": 0, "required": 0 },
+        "invariants": {
+          "header_only_auth": true,
+          "telemetry_disabled_default": true,
+          "read_only_recall": true,
+          "injected_default_off": true,
+          "untrusted_framing": true,
+          "secret_redaction": true
+        },
+        "ic1_categories_covered": [
+          "scoping_isolation",
+          "cognitive_lifecycle",
+          "resilience",
+          "security",
+          "closure_and_mcp"
+        ]
+      }
+    },
+    {
+      "id": "openclaw",
+      "target": "OpenClaw",
+      "mcp_remote": "Fallback",
+      "mcp_local": "Fallback",
+      "native_shape": "Memory-slot plugin (`memory_search` / `memory_get`)",
+      "distribution": "ClawHub package",
+      "notes": "Skill [`instructions/openclaw/SKILL.md`](../../instructions/openclaw/SKILL.md) on `main`; plugin package pending",
+      "evidence": {
+        "kind": "host-plugin",
+        "status": "in progress",
+        "mcp_supported": false,
+        "mcp_surface_validated": false,
+        "config_schema_validated": false,
+        "mock_results": { "passed": 0, "failed": 0, "required": 0 },
+        "live_results": { "passed": 0, "failed": 0, "required": 0 },
+        "invariants": {
+          "header_only_auth": true,
+          "telemetry_disabled_default": true,
+          "read_only_recall": true,
+          "injected_default_off": true,
+          "untrusted_framing": true,
+          "secret_redaction": true
+        }
+      }
+    },
+    {
+      "id": "open-webui",
+      "target": "Open WebUI",
+      "mcp_remote": "Yes",
+      "mcp_local": "Via `mcpo`",
+      "native_shape": "Filter Function",
+      "distribution": "Community function",
+      "notes": "Filter Function and native MCP guide pending",
+      "evidence": {
+        "kind": "host-plugin",
+        "status": "planned",
+        "mcp_supported": true,
+        "mcp_surface_validated": false,
+        "config_schema_validated": false,
+        "mock_results": { "passed": 0, "failed": 0, "required": 0 },
+        "live_results": { "passed": 0, "failed": 0, "required": 0 },
+        "invariants": {
+          "header_only_auth": true,
+          "telemetry_disabled_default": true,
+          "read_only_recall": true,
+          "injected_default_off": true,
+          "untrusted_framing": true,
+          "secret_redaction": true
+        }
+      }
+    },
+    {
+      "id": "vercel-ai-sdk",
+      "target": "Vercel AI SDK",
+      "mcp_remote": "Optional",
+      "mcp_local": "No",
+      "native_shape": "Tools + model middleware",
+      "distribution": "npm package",
+      "notes": "[`packages/ai-sdk/`](../../packages/ai-sdk/README.md) (`@ebbmem/ai-sdk`) source and mock IC-1 tests on `main`; npm publish and live pending",
+      "evidence": {
+        "kind": "framework-adapter",
+        "status": "available",
+        "mcp_supported": false,
+        "mcp_surface_validated": false,
+        "config_schema_validated": true,
+        "mock_results": { "passed": 21, "failed": 0, "required": 21 },
+        "live_results": { "passed": 0, "failed": 0, "required": 0 },
+        "invariants": {
+          "header_only_auth": true,
+          "telemetry_disabled_default": true,
+          "read_only_recall": true,
+          "injected_default_off": true,
+          "untrusted_framing": true,
+          "secret_redaction": true
+        },
+        "ic1_categories_covered": [
+          "scoping_isolation",
+          "cognitive_lifecycle",
+          "resilience",
+          "security",
+          "closure_and_mcp"
+        ]
+      }
+    },
+    {
+      "id": "openai-agents-chatgpt",
+      "target": "OpenAI Agents SDK / ChatGPT",
+      "mcp_remote": "Yes (ChatGPT connector)",
+      "mcp_local": "No",
+      "native_shape": "`Session` + memory tools",
+      "distribution": "PyPI package, connector recipe",
+      "notes": "[`packages/openai-agents-python/`](../../packages/openai-agents-python/README.md) (`ebbmem-openai-agents`) source, mock tests, and [`docs/recipes/chatgpt.md`](../recipes/chatgpt.md) on `main`; PyPI publish and live pending",
+      "evidence": {
+        "kind": "framework-adapter",
+        "status": "available",
+        "mcp_supported": true,
+        "mcp_surface_validated": true,
+        "config_schema_validated": true,
+        "mock_results": { "passed": 21, "failed": 0, "required": 21 },
+        "live_results": { "passed": 0, "failed": 0, "required": 0 },
+        "invariants": {
+          "header_only_auth": true,
+          "telemetry_disabled_default": true,
+          "read_only_recall": true,
+          "injected_default_off": true,
+          "untrusted_framing": true,
+          "secret_redaction": true
+        },
+        "ic1_categories_covered": [
+          "scoping_isolation",
+          "cognitive_lifecycle",
+          "resilience",
+          "security",
+          "closure_and_mcp"
+        ]
+      }
+    },
+    {
+      "id": "llamaindex",
+      "target": "LlamaIndex",
+      "mcp_remote": "Optional",
+      "mcp_local": "No",
+      "native_shape": "Memory block",
+      "distribution": "PyPI package",
+      "notes": "Builds on [`packages/python/README.md`](../../packages/python/README.md)",
+      "evidence": {
+        "kind": "framework-adapter",
+        "status": "planned",
+        "mcp_supported": false,
+        "mcp_surface_validated": false,
+        "config_schema_validated": false,
+        "mock_results": { "passed": 0, "failed": 0, "required": 0 },
+        "live_results": { "passed": 0, "failed": 0, "required": 0 },
+        "invariants": {
+          "header_only_auth": true,
+          "telemetry_disabled_default": true,
+          "read_only_recall": true,
+          "injected_default_off": true,
+          "untrusted_framing": true,
+          "secret_redaction": true
+        }
+      }
+    },
+    {
+      "id": "crewai",
+      "target": "CrewAI",
+      "mcp_remote": "Optional",
+      "mcp_local": "No",
+      "native_shape": "Storage backend",
+      "distribution": "PyPI package",
+      "notes": "Builds on [`packages/python/README.md`](../../packages/python/README.md)",
+      "evidence": {
+        "kind": "framework-adapter",
+        "status": "planned",
+        "mcp_supported": false,
+        "mcp_surface_validated": false,
+        "config_schema_validated": false,
+        "mock_results": { "passed": 0, "failed": 0, "required": 0 },
+        "live_results": { "passed": 0, "failed": 0, "required": 0 },
+        "invariants": {
+          "header_only_auth": true,
+          "telemetry_disabled_default": true,
+          "read_only_recall": true,
+          "injected_default_off": true,
+          "untrusted_framing": true,
+          "secret_redaction": true
+        }
+      }
+    },
+    {
+      "id": "google-adk",
+      "target": "Google ADK",
+      "mcp_remote": "Optional",
+      "mcp_local": "No",
+      "native_shape": "Memory service",
+      "distribution": "PyPI package",
+      "notes": "Builds on [`packages/python/README.md`](../../packages/python/README.md)",
+      "evidence": {
+        "kind": "framework-adapter",
+        "status": "planned",
+        "mcp_supported": false,
+        "mcp_surface_validated": false,
+        "config_schema_validated": false,
+        "mock_results": { "passed": 0, "failed": 0, "required": 0 },
+        "live_results": { "passed": 0, "failed": 0, "required": 0 },
+        "invariants": {
+          "header_only_auth": true,
+          "telemetry_disabled_default": true,
+          "read_only_recall": true,
+          "injected_default_off": true,
+          "untrusted_framing": true,
+          "secret_redaction": true
+        }
+      }
+    },
+    {
+      "id": "microsoft-agent-framework",
+      "target": "Microsoft Agent Framework / Semantic Kernel / AutoGen",
+      "mcp_remote": "Optional",
+      "mcp_local": "No",
+      "native_shape": "Context provider",
+      "distribution": "NuGet / PyPI",
+      "notes": "Native provider + MCP support",
+      "evidence": {
+        "kind": "framework-adapter",
+        "status": "planned",
+        "mcp_supported": false,
+        "mcp_surface_validated": false,
+        "config_schema_validated": false,
+        "mock_results": { "passed": 0, "failed": 0, "required": 0 },
+        "live_results": { "passed": 0, "failed": 0, "required": 0 },
+        "invariants": {
+          "header_only_auth": true,
+          "telemetry_disabled_default": true,
+          "read_only_recall": true,
+          "injected_default_off": true,
+          "untrusted_framing": true,
+          "secret_redaction": true
+        }
+      }
+    },
+    {
+      "id": "pydantic-ai-mastra",
+      "target": "Pydantic AI, Mastra",
+      "mcp_remote": "Yes",
+      "mcp_local": "Yes",
+      "native_shape": "Setup recipes",
+      "distribution": "Docs recipes",
+      "notes": "MCP-first integration guides",
+      "evidence": {
+        "kind": "recipe",
+        "status": "planned",
+        "mcp_supported": true,
+        "mcp_surface_validated": false,
+        "config_schema_validated": false,
+        "mock_results": { "passed": 0, "failed": 0, "required": 0 },
+        "live_results": { "passed": 0, "failed": 0, "required": 0 },
+        "invariants": {
+          "header_only_auth": true,
+          "telemetry_disabled_default": true,
+          "read_only_recall": true,
+          "injected_default_off": true,
+          "untrusted_framing": true,
+          "secret_redaction": true
+        }
+      }
+    },
+    {
+      "id": "n8n-dify-flowise-librechat",
+      "target": "n8n, Dify, Flowise, LibreChat",
+      "mcp_remote": "Yes",
+      "mcp_local": "LibreChat only",
+      "native_shape": "Setup recipes",
+      "distribution": "Docs recipes",
+      "notes": "MCP-first workflow & UI guides",
+      "evidence": {
+        "kind": "recipe",
+        "status": "planned",
+        "mcp_supported": true,
+        "mcp_surface_validated": false,
+        "config_schema_validated": false,
+        "mock_results": { "passed": 0, "failed": 0, "required": 0 },
+        "live_results": { "passed": 0, "failed": 0, "required": 0 },
+        "invariants": {
+          "header_only_auth": true,
+          "telemetry_disabled_default": true,
+          "read_only_recall": true,
+          "injected_default_off": true,
+          "untrusted_framing": true,
+          "secret_redaction": true
+        }
+      }
+    }
+  ]
+}

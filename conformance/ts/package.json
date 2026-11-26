@@ -1,0 +1,36 @@
+{
+  "name": "ebbmem-conformance-ts",
+  "version": "0.1.0",
+  "description": "TypeScript IC-1 conformance runner and adapter badge evaluator for EbbMem integrations.",
+  "license": "Apache-2.0",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "ebbmem-conformance-ts": "./dist/cli.js"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc -p tsconfig.test.json --noEmit",
+    "test": "tsc -p tsconfig.test.json && node --test build/test/test/*.test.js",
+    "conformance": "node dist/cli.js --mode mock"
+  },
+  "dependencies": {
+    "ajv": "^8.17.1",
+    "ebbmem-integration-core": "file:../../packages/typescript",
+    "yaml": "^2.7.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.0.0"
+  }
+}
