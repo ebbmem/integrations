@@ -8,6 +8,7 @@ import {
   RequestTimeoutError,
   ServerError,
   TransportError,
+  ValidationError,
 } from "./errors";
 import { DEFAULT_REINFORCE_DELTA, validateDelta } from "./reinforcement";
 import {
@@ -38,6 +39,9 @@ export interface SdkCapabilities {
   exactKeyDelete: boolean;
   metadataFilterOnListRecall: boolean;
   namespacePrefixList: boolean;
+  listMemories?: boolean;
+  episodicRemember?: boolean;
+  episodicTail?: boolean;
   notes: readonly string[];
 }
 
@@ -90,10 +94,54 @@ export interface MemoryScopedParams {
   headers?: Record<string, string>;
 }
 
+export interface ListMemoriesParams {
+  namespace?: string;
+  tier?: string;
+  tags?: readonly string[];
+  tombstoned?: boolean;
+  search?: string;
+  sessionId?: string;
+  limit?: number;
+  cursor?: string;
+  page?: number;
+  pageSize?: number;
+  minImportance?: number;
+  minValence?: number;
+  maxValence?: number;
+  metadataFilter?: Record<string, unknown>;
+  timeoutMs?: number;
+  headers?: Record<string, string>;
+}
+
+export interface EpisodicRememberParams {
+  threadKey?: string;
+  sessionId?: string;
+  content: string;
+  role?: string;
+  tags?: readonly string[];
+  namespace?: string;
+  idempotencyKey?: string;
+  mcpProfile?: string;
+  headers?: Record<string, string>;
+}
+
+export interface EpisodicTailParams {
+  threadKey?: string;
+  sessionId?: string;
+  limit?: number;
+  namespace?: string;
+  mcpProfile?: string;
+  timeoutMs?: number;
+  headers?: Record<string, string>;
+}
+
 export interface EbbmemTransport {
   readonly capabilities: SdkCapabilities;
   remember(params: RememberParams): Promise<Record<string, unknown>>;
   recall(params: RecallParams): Promise<Record<string, unknown>>;
+  listMemories?(params?: ListMemoriesParams): Promise<Record<string, unknown>>;
+  episodicRemember?(params: EpisodicRememberParams): Promise<Record<string, unknown>>;
+  episodicTail?(params?: EpisodicTailParams): Promise<Record<string, unknown>>;
   reinforce(params: ReinforceParams): Promise<Record<string, unknown>>;
   get(memoryId: string, params?: MemoryScopedParams): Promise<Record<string, unknown>>;
   forget(memoryId: string, params?: MemoryScopedParams): Promise<Record<string, unknown>>;
@@ -150,8 +198,23 @@ export function httpErrorFromResponse(resp: HttpResponse): EbbmemApiError {
     resp.body && typeof resp.body === "object" && !Array.isArray(resp.body)
       ? (resp.body as Record<string, unknown>)
       : {};
-  const code = typeof bodyObj.code === "string" ? bodyObj.code : undefined;
-  const detail = typeof bodyObj.detail === "string" ? bodyObj.detail : undefined;
+  const errObj =
+    bodyObj.error && typeof bodyObj.error === "object" && !Array.isArray(bodyObj.error)
+      ? (bodyObj.error as Record<string, unknown>)
+      : undefined;
+  let code = typeof bodyObj.code === "string" ? bodyObj.code : undefined;
+  if (!code && errObj) {
+    if (typeof errObj.code === "string") {
+      code = errObj.code;
+    } else if (errObj.data && typeof errObj.data === "object" && !Array.isArray(errObj.data)) {
+      const dataCode = (errObj.data as Record<string, unknown>).code;
+      if (typeof dataCode === "string") code = dataCode;
+    }
+  }
+  let detail = typeof bodyObj.detail === "string" ? bodyObj.detail : undefined;
+  if (!detail && errObj && typeof errObj.message === "string") {
+    detail = errObj.message;
+  }
   const retryAfterMs = parseRetryAfterMs(resp.headers);
   const msg = redactSecrets(
     `EbbMem HTTP ${resp.status}${code ? ` [${code}]` : ""}${detail ? `: ${detail}` : ""}`,
@@ -169,6 +232,61 @@ export function httpErrorFromResponse(resp: HttpResponse): EbbmemApiError {
   }
   if (resp.status >= 500) return new ServerError(msg, opts);
   return new EbbmemApiError(msg, opts);
+}
+
+export function mcpErrorFromPayload(
+  status: number,
+  headers: Record<string, string>,
+  payload: Record<string, unknown>,
+): EbbmemApiError {
+  const errObj =
+    payload.error && typeof payload.error === "object" && !Array.isArray(payload.error)
+      ? (payload.error as Record<string, unknown>)
+      : {};
+  const rpcCode = errObj.code;
+  let effectiveStatus = status;
+  if (effectiveStatus < 400) {
+    if (rpcCode === -32003) effectiveStatus = 403;
+    else if (rpcCode === -32004 || rpcCode === -32601) effectiveStatus = 404;
+    else if (rpcCode === -32602) effectiveStatus = 422;
+    else effectiveStatus = 400;
+  }
+  return httpErrorFromResponse({ status: effectiveStatus, headers, body: payload });
+}
+
+export function extractMcpResultDict(payload: unknown): Record<string, unknown> {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return {};
+  }
+  const top = payload as Record<string, unknown>;
+  const result =
+    top.result && typeof top.result === "object" && !Array.isArray(top.result)
+      ? (top.result as Record<string, unknown>)
+      : top;
+  for (const key of ["structuredContent", "structured_content"]) {
+    const structured = result[key];
+    if (structured && typeof structured === "object" && !Array.isArray(structured)) {
+      return { ...(structured as Record<string, unknown>) };
+    }
+  }
+  if (Array.isArray(result.content)) {
+    for (const item of result.content) {
+      if (item && typeof item === "object" && !Array.isArray(item)) {
+        const text = (item as Record<string, unknown>).text;
+        if (typeof text === "string" && text.trim()) {
+          try {
+            const parsed = JSON.parse(text);
+            if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+              return parsed as Record<string, unknown>;
+            }
+          } catch {
+            continue;
+          }
+        }
+      }
+    }
+  }
+  return { ...result };
 }
 
 export interface FetchTransportOptions {
@@ -213,9 +331,13 @@ export class FetchTransport implements EbbmemTransport {
       exactKeyDelete: false,
       metadataFilterOnListRecall: false,
       namespacePrefixList: false,
+      listMemories: true,
+      episodicRemember: true,
+      episodicTail: true,
       notes: [
-        "Built-in fetch transport supports full IC-1 REST verbs; P0-09 exact-key lookup/delete, " +
-          "metadata filters, and namespace listing are not yet enabled on the base transport.",
+        "Built-in fetch transport supports full IC-1 REST verbs, listMemories, and MCP " +
+          "episodicRemember/episodicTail; P0-09 exact-key lookup/delete and namespace listing " +
+          "are not yet enabled on the base transport.",
       ],
     };
   }
@@ -516,6 +638,123 @@ export class FetchTransport implements EbbmemTransport {
 
   async health(): Promise<Record<string, unknown>> {
     return this.callJson("GET", "/healthz");
+  }
+
+  async listMemories(params: ListMemoriesParams = {}): Promise<Record<string, unknown>> {
+    const reqHeaders: Record<string, string> = { ...(params.headers ?? {}) };
+    const query: Record<string, string> = {
+      limit: String(params.limit ?? 50),
+      tombstoned: params.tombstoned ? "true" : "false",
+    };
+    if (params.namespace !== undefined) {
+      setHeaderIfAbsentCaseInsensitive(reqHeaders, "X-Ebb-Namespace", params.namespace);
+      query.namespace = params.namespace;
+    }
+    if (params.tier !== undefined) query.tier = params.tier;
+    if (params.tags && params.tags.length > 0) query.tags = params.tags.join(",");
+    if (params.search !== undefined) query.search = params.search;
+    if (params.sessionId !== undefined) query.session_id = params.sessionId;
+    if (params.cursor !== undefined) query.cursor = params.cursor;
+    if (params.page !== undefined) query.page = String(params.page);
+    if (params.pageSize !== undefined) query.page_size = String(params.pageSize);
+    if (params.minImportance !== undefined) query.min_importance = String(params.minImportance);
+    if (params.minValence !== undefined) query.min_valence = String(params.minValence);
+    if (params.maxValence !== undefined) query.max_valence = String(params.maxValence);
+    if (params.metadataFilter !== undefined) {
+      query.metadata_filter = JSON.stringify(params.metadataFilter);
+    }
+    return this.callJson("GET", "/api/v1/memory", {
+      headers: reqHeaders,
+      query,
+      timeoutMs: params.timeoutMs,
+    });
+  }
+
+  private async callMcpTool(
+    toolName: string,
+    args: Record<string, unknown>,
+    options: {
+      namespace?: string;
+      mcpProfile?: string;
+      idempotencyKey?: string;
+      timeoutMs?: number;
+      headers?: Record<string, string>;
+    } = {},
+  ): Promise<Record<string, unknown>> {
+    const profile = options.mcpProfile ?? "full";
+    if (profile !== "core" && profile !== "full" && profile !== "admin") {
+      throw new ValidationError(`Invalid mcpProfile: ${profile}`);
+    }
+    const reqHeaders: Record<string, string> = { ...(options.headers ?? {}) };
+    setHeaderCaseInsensitive(reqHeaders, "Accept", "application/json, text/event-stream");
+    setHeaderIfAbsentCaseInsensitive(reqHeaders, "MCP-Protocol-Version", "2026-07-28");
+    setHeaderCaseInsensitive(reqHeaders, "Mcp-Method", "tools/call");
+    setHeaderCaseInsensitive(reqHeaders, "Mcp-Name", toolName);
+    setHeaderIfAbsentCaseInsensitive(reqHeaders, "X-Ebb-MCP-Profile", profile);
+    if (options.namespace !== undefined) {
+      setHeaderIfAbsentCaseInsensitive(reqHeaders, "X-Ebb-Namespace", options.namespace);
+    }
+    if (options.idempotencyKey !== undefined) {
+      validateIdempotencyKey(options.idempotencyKey);
+      setHeaderIfAbsentCaseInsensitive(reqHeaders, "Idempotency-Key", options.idempotencyKey);
+    }
+    const rpcBody = {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: { name: toolName, arguments: args },
+    };
+    const resp = await this.requestWithRetry("POST", `/mcp/${profile}`, {
+      jsonBody: rpcBody,
+      headers: reqHeaders,
+      timeoutMs: options.timeoutMs,
+    });
+    if (resp.status >= 400) {
+      throw httpErrorFromResponse(resp);
+    }
+    if (resp.body && typeof resp.body === "object" && !Array.isArray(resp.body)) {
+      const bodyObj = resp.body as Record<string, unknown>;
+      if (bodyObj.error !== undefined && bodyObj.error !== null) {
+        throw mcpErrorFromPayload(resp.status, resp.headers, bodyObj);
+      }
+    }
+    return extractMcpResultDict(resp.body);
+  }
+
+  async episodicRemember(params: EpisodicRememberParams): Promise<Record<string, unknown>> {
+    const args: Record<string, unknown> = {
+      content: params.content,
+      role: params.role ?? "user",
+    };
+    if (params.threadKey !== undefined) args.thread_key = params.threadKey;
+    if (params.sessionId !== undefined) args.session_id = params.sessionId;
+    if (params.tags !== undefined) args.tags = [...params.tags];
+    if (params.namespace !== undefined) args.namespace = params.namespace;
+    if (params.idempotencyKey !== undefined) {
+      validateIdempotencyKey(params.idempotencyKey);
+      args.idempotency_key = params.idempotencyKey;
+    }
+    return this.callMcpTool("memory_episodic_remember", args, {
+      namespace: params.namespace,
+      mcpProfile: params.mcpProfile,
+      idempotencyKey: params.idempotencyKey,
+      headers: params.headers,
+    });
+  }
+
+  async episodicTail(params: EpisodicTailParams = {}): Promise<Record<string, unknown>> {
+    const args: Record<string, unknown> = {
+      limit: params.limit ?? 10,
+    };
+    if (params.threadKey !== undefined) args.thread_key = params.threadKey;
+    if (params.sessionId !== undefined) args.session_id = params.sessionId;
+    if (params.namespace !== undefined) args.namespace = params.namespace;
+    return this.callMcpTool("memory_episodic_tail", args, {
+      namespace: params.namespace,
+      mcpProfile: params.mcpProfile,
+      timeoutMs: params.timeoutMs,
+      headers: params.headers,
+    });
   }
 }
 

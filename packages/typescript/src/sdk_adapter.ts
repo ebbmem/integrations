@@ -15,6 +15,9 @@ import { validateIdempotencyKey } from "./retry";
 import { redactSecrets, validateAuthCredentials, validateBaseUrl } from "./security";
 import {
   EbbmemTransport,
+  EpisodicRememberParams,
+  EpisodicTailParams,
+  ListMemoriesParams,
   MemoryScopedParams,
   RecallParams,
   ReinforceParams,
@@ -78,6 +81,9 @@ export interface SdkRawMemoryApiLike {
     req: { prefix?: string },
     initOverrides?: SdkInitOverride,
   ): Promise<unknown>;
+  listMemories?(params?: ListMemoriesParams): Promise<unknown>;
+  episodicRemember?(params: EpisodicRememberParams): Promise<unknown>;
+  episodicTail?(params?: EpisodicTailParams): Promise<unknown>;
 }
 
 export interface SdkClientLike {
@@ -101,6 +107,9 @@ export interface SdkClientLike {
     forget(memoryId: string, purge?: boolean): Promise<unknown>;
     reinforce(memoryId: string, delta?: number): Promise<unknown>;
     status(): Promise<unknown>;
+    listMemories?(params?: ListMemoriesParams): Promise<unknown>;
+    episodicRemember?(params: EpisodicRememberParams): Promise<unknown>;
+    episodicTail?(params?: EpisodicTailParams): Promise<unknown>;
   };
   raw?: {
     memory?: SdkRawMemoryApiLike;
@@ -214,6 +223,15 @@ export class SdkTransportAdapter implements EbbmemTransport {
       exactKeyDelete: typeof rawMem?.deleteByKey === "function",
       metadataFilterOnListRecall: Boolean(sdkClient.supportsMetadataFilter),
       namespacePrefixList: typeof rawMem?.listNamespaces === "function",
+      listMemories:
+        typeof rawMem?.listMemories === "function" ||
+        typeof sdkClient.memory?.listMemories === "function",
+      episodicRemember:
+        typeof rawMem?.episodicRemember === "function" ||
+        typeof sdkClient.memory?.episodicRemember === "function",
+      episodicTail:
+        typeof rawMem?.episodicTail === "function" ||
+        typeof sdkClient.memory?.episodicTail === "function",
       notes: [
         "Released @ebbmem/client v0.2.0 facade omits tier/session_id/metadata on remember, " +
           "profile/min_score/domain on recall, and used_ids/recall_id on reinforce (where " +
@@ -620,5 +638,71 @@ export class SdkTransportAdapter implements EbbmemTransport {
     }
     const res = await this.runOp("listNamespaces", () => rawMem.listNamespaces!({ prefix }));
     return Array.isArray(res) ? res.map(String) : [];
+  }
+
+  async listMemories(params: ListMemoriesParams = {}): Promise<Record<string, unknown>> {
+    const rawMem = this.sdk.raw?.memory;
+    const rawFn = rawMem?.listMemories;
+    const memFn = this.sdk.memory?.listMemories;
+    if (!this.capabilities.listMemories || (typeof rawFn !== "function" && typeof memFn !== "function")) {
+      throw new UnsupportedCapabilityError(
+        "listMemories requires EbbMem 0.3+ APIs not present in @ebbmem/client v0.2.0 (use FetchTransport)",
+      );
+    }
+    try {
+      const res =
+        typeof memFn === "function"
+          ? await memFn.call(this.sdk.memory, params)
+          : await rawFn!.call(rawMem, params);
+      return asRecord(res);
+    } catch (err) {
+      throw this.translateErr(err);
+    }
+  }
+
+  async episodicRemember(params: EpisodicRememberParams): Promise<Record<string, unknown>> {
+    if (params.idempotencyKey !== undefined) {
+      validateIdempotencyKey(params.idempotencyKey);
+    }
+    const rawMem = this.sdk.raw?.memory;
+    const rawFn = rawMem?.episodicRemember;
+    const memFn = this.sdk.memory?.episodicRemember;
+    if (
+      !this.capabilities.episodicRemember ||
+      (typeof rawFn !== "function" && typeof memFn !== "function")
+    ) {
+      throw new UnsupportedCapabilityError(
+        "episodicRemember requires EbbMem 0.3+ APIs not present in @ebbmem/client v0.2.0 (use FetchTransport)",
+      );
+    }
+    try {
+      const res =
+        typeof memFn === "function"
+          ? await memFn.call(this.sdk.memory, params)
+          : await rawFn!.call(rawMem, params);
+      return asRecord(res);
+    } catch (err) {
+      throw this.translateErr(err);
+    }
+  }
+
+  async episodicTail(params: EpisodicTailParams = {}): Promise<Record<string, unknown>> {
+    const rawMem = this.sdk.raw?.memory;
+    const rawFn = rawMem?.episodicTail;
+    const memFn = this.sdk.memory?.episodicTail;
+    if (!this.capabilities.episodicTail || (typeof rawFn !== "function" && typeof memFn !== "function")) {
+      throw new UnsupportedCapabilityError(
+        "episodicTail requires EbbMem 0.3+ APIs not present in @ebbmem/client v0.2.0 (use FetchTransport)",
+      );
+    }
+    try {
+      const res =
+        typeof memFn === "function"
+          ? await memFn.call(this.sdk.memory, params)
+          : await rawFn!.call(rawMem, params);
+      return asRecord(res);
+    } catch (err) {
+      throw this.translateErr(err);
+    }
   }
 }
