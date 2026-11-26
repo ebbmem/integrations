@@ -561,29 +561,17 @@ def test_default_off_gating_and_disabled_passthrough() -> None:
             ]
         }
 
-        # Empty base_url -> untouched, zero requests.
-        flt_empty = Filter()
-        assert (
-            asyncio.run(flt_empty.inlet(sample_body, __user__={"id": "alice"}))
-            == sample_body
-        )
-        assert (
-            asyncio.run(flt_empty.outlet(sample_body, __user__={"id": "alice"}))
-            == sample_body
-        )
-        assert len(server.logged_requests) == req_count_seed
-
-        # enabled=False -> untouched, zero requests.
-        flt_disabled = _make_filter(server.base_url, enabled=False)
-        assert (
-            asyncio.run(flt_disabled.inlet(sample_body, __user__={"id": "alice"}))
-            == sample_body
-        )
-        assert (
-            asyncio.run(flt_disabled.outlet(sample_body, __user__={"id": "alice"}))
-            == sample_body
-        )
-        assert len(server.logged_requests) == req_count_seed
+        # Empty base_url or enabled=False -> untouched, zero requests.
+        for disabled_flt in (Filter(), _make_filter(server.base_url, enabled=False)):
+            assert (
+                asyncio.run(disabled_flt.inlet(sample_body, __user__={"id": "alice"}))
+                == sample_body
+            )
+            assert (
+                asyncio.run(disabled_flt.outlet(sample_body, __user__={"id": "alice"}))
+                == sample_body
+            )
+            assert len(server.logged_requests) == req_count_seed
 
         # UserValves.enabled=False -> untouched, zero requests.
         flt_active = _make_filter(server.base_url)
@@ -908,11 +896,16 @@ def test_boundary_straddling_pem_and_edge_redactions_in_outlet() -> None:
 
 
 def test_url_query_and_fragment_rejected_locally() -> None:
+    validate = ebbmem_filter.validate_base_url
+    assert validate("  http://127.0.0.1:8320  ") == "http://127.0.0.1:8320"
+    with pytest.raises(ValueError, match="control"):
+        validate("http://127.0.0.1:8320/api\n")
     body = {"messages": [{"role": "user", "content": "Hello"}]}
     with MockEbbmemServer() as server:
         for bad_url, secret in [
             (f"{server.base_url}#?token=frag_secret_4", "frag_secret_4"),
             (f"{server.base_url}?env=prod", "env=prod"),
+            (f"{server.base_url}/api\n", "/api\n"),
         ]:
             flt = _make_filter(bad_url, fail_open=True)
             assert asyncio.run(flt.inlet(body, __user__={"id": "alice"})) == body
@@ -924,20 +917,44 @@ def test_url_query_and_fragment_rejected_locally() -> None:
             assert secret not in str(exc_info.value)
 
 
-def test_namespace_whitespace_dict_valves_none_type_and_reinforce_503_isolation() -> (
-    None
-):
-    ns_clean = ebbmem_filter.resolve_user_namespace("acme", {"id": "alice"})
-    ns_nl = ebbmem_filter.resolve_user_namespace("acme", {"id": "alice\n"})
-    ns_pad = ebbmem_filter.resolve_user_namespace("acme", {"id": " alice "})
+def test_multiline_unclosed_quote_and_userinfo_redaction() -> None:
+    sample = (
+        "https://:pw123@db.internal:5432/app "
+        "https://alice:p@ssword@db.internal:5432/app "
+        "https://example.com:8080/path user@example.com"
+    )
+    redacted = ebbmem_filter.redact_secrets(sample)
+    assert "pw123" not in redacted and "p@ssword" not in redacted
+    assert redacted.count("https://[REDACTED]@db.internal:5432/app") == 2
+    assert "https://example.com:8080/path user@example.com" in redacted
+
+    reply = 'Please check "docs" and keep "notes" safe.'
+    with MockEbbmemServer() as server:
+        flt = _make_filter(server.base_url, auto_remember=True)
+        body = {
+            "messages": [
+                {"role": "user", "content": 'my password="oops_unclosed'},
+                {"role": "assistant", "content": reply},
+            ]
+        }
+        asyncio.run(flt.outlet(body, __user__={"id": "alice"}, __metadata__={}))
+        stored = list(server._state.memories["acme:u:alice"].values())
+        assert len(stored) == 1
+        assert stored[0].content == f"User: my password=[REDACTED]\nAssistant: {reply}"
+
+
+def test_namespace_whitespace_dict_valves_and_none_type() -> None:
+    resolve_ns = ebbmem_filter.resolve_user_namespace
+    ns_clean, ns_nl = (
+        resolve_ns("acme", {"id": "alice"}),
+        resolve_ns("acme", {"id": "alice\n"}),
+    )
+    ns_pad = resolve_ns("acme", {"id": " alice "})
     assert ns_clean == "acme:u:alice"
     assert ns_nl != ns_clean and ns_nl.startswith("acme:u:alice__")
     assert ns_pad != ns_clean and ns_pad != ns_nl
-
-    assert (
-        ebbmem_filter._extract_message_text([{"type": None, "text": "Kafka?"}])
-        == "Kafka?"
-    )
+    extract = ebbmem_filter._extract_message_text
+    assert extract([{"type": None, "text": "Kafka?"}]) == "Kafka?"
 
     with MockEbbmemServer() as server:
         _seed_memory(
@@ -960,13 +977,6 @@ def test_namespace_whitespace_dict_valves_none_type_and_reinforce_503_isolation(
             assert asyncio.run(flt.inlet(body, __user__=user_off)) == body
             assert asyncio.run(flt.outlet(body, __user__=user_off)) == body
         # UserValves(auto_remember=True) cannot override Valves(auto_remember=False).
-        asyncio.run(
-            flt.outlet(
-                body,
-                __user__={
-                    "id": "alice",
-                    "valves": Filter.UserValves(auto_remember=True),
-                },
-            )
-        )
+        uv_auto = Filter.UserValves(auto_remember=True)
+        asyncio.run(flt.outlet(body, __user__={"id": "alice", "valves": uv_auto}))
         assert len(server.logged_requests) == req_count

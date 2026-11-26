@@ -68,7 +68,6 @@ TELEMETRY_ENABLED_DEFAULT: bool = getattr(_core, "TELEMETRY_ENABLED_DEFAULT", Fa
 _core_extract_cited_ids = getattr(_core, "extract_cited_ids", None)
 _core_frame_recalled_memories = getattr(_core, "frame_recalled_memories", None)
 _core_make_idempotency_key = getattr(_core, "make_idempotency_key", None)
-_core_redact_secrets = getattr(_core, "redact_secrets", None)
 _core_validate_auth_credentials = getattr(_core, "validate_auth_credentials", None)
 _core_validate_base_url = getattr(_core, "validate_base_url", None)
 _core_validate_delta = getattr(_core, "validate_delta", None)
@@ -112,12 +111,11 @@ _QUERY_CRED_RE = re.compile(
 _JWT_RE = re.compile(
     r"\beyJ[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]*(?![A-Za-z0-9_-])"
 )
-_URL_USERINFO_RE = re.compile(r"(https?://)[^/\s:@]+:[^/\s@]+@", re.IGNORECASE)
+_URL_USERINFO_RE = re.compile(r"(https?://)[^\s/]*:[^\s/]*@(?=[^\s/@]+)", re.IGNORECASE)
 _KEY_PREFIX_RE = re.compile(
     r"\b(?:ebb_[A-Za-z0-9_-]+|sk-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9_]{16,}"
     r"|github_pat_[A-Za-z0-9_]{16,}|glpat-[A-Za-z0-9_-]{8,}|AKIA[0-9A-Z]{16})\b"
 )
-_EXTRA_KEY_PREFIX_RE = re.compile(r"\b(?:glpat-[A-Za-z0-9_-]{8,}|AKIA[0-9A-Z]{16})\b")
 _KV_SECRET_RE = re.compile(
     r"""((?:["']?(?:password|secret_key|secret|access_token|refresh_token|bearer_token|id_token|auth_token|token|api_secret|api_key|api-key|authorization|cookie|credential|private_key|client_secret)["']?)\s*[=:]\s*)(?:"(?:[^"\\\r\n]|\\.)*"|'(?:[^'\\\r\n]|\\.)*'|"(?:[^"\\\r\n]|\\.)+|'(?:[^'\\\r\n]|\\.)+|[^\s,;&}"']+)""",
     re.IGNORECASE,
@@ -136,14 +134,15 @@ def validate_base_url(url: str) -> str:
     """Validate http/https base URL and reject embedded credentials without echoing raw URL."""
     if not isinstance(url, str) or not url.strip():
         raise ValueError("Invalid base URL: expected non-empty http:// or https:// URL")
+    if any(ord(ch) < 32 or ord(ch) == 127 for ch in url):
+        raise ValueError("Invalid base URL: control characters are not permitted")
+    cleaned = url.strip()
     if _core_validate_base_url is not None:
         try:
-            cleaned = _core_validate_base_url(url)
+            cleaned = _core_validate_base_url(cleaned)
         except ValueError as exc:
             # Never propagate raw URL content.
             raise ValueError(str(exc)) from exc
-    else:
-        cleaned = url.strip()
 
     try:
         parsed = urllib.parse.urlsplit(cleaned)
@@ -241,13 +240,6 @@ def redact_secrets(text: str) -> str:
     """Redact credentials, tokens, JWTs, PEM blocks, and secret assignments from text."""
     if not text:
         return text
-    if _core_redact_secrets is not None:
-        redacted = _core_redact_secrets(text)
-        redacted = _QUERY_CRED_RE.sub(r"\1[REDACTED]", redacted)
-        redacted = _URL_USERINFO_RE.sub(r"\1[REDACTED]@", redacted)
-        redacted = _JWT_RE.sub("[REDACTED]", redacted)
-        redacted = _EXTRA_KEY_PREFIX_RE.sub("[REDACTED]", redacted)
-        return _KV_SECRET_RE.sub(r"\1[REDACTED]", redacted)
     redacted = _PEM_RE.sub("[REDACTED]", text)
     redacted = _AUTH_HEADER_RE.sub(_replace_auth_header, redacted)
     redacted = _BEARER_RE.sub(r"\1[REDACTED]", redacted)
