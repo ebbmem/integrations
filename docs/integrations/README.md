@@ -41,24 +41,33 @@ Status values reflect **only** what exists on the `main` branch of `ebbmem/integ
 - `in progress` — partial support (such as a platform-specific wrapper in `instructions/`) exists on `main`, while the full guide, bundle, or adapter package is not yet on `main`.
 - `planned` — target integration guide, recipe, or native adapter package is not yet on `main`.
 
-| Target | MCP Remote (`/mcp`) | MCP Local (`stdio`) | Native Adapter / Integration Shape | Distribution / Artifact | Status | On `main` & Notes |
-| --- | :---: | :---: | --- | --- | :---: | --- |
-| GitHub Copilot (VS Code) | Yes | Yes | — | `.vscode/mcp.json`, registry entry | `planned` | Generic MCP via `/mcp/core` |
-| GitHub Copilot cloud agent / code review | Yes (API key, no OAuth) | No | — | Repo settings snippet | `planned` | Requires header API-key auth |
-| Claude Code / Claude Desktop | Yes | Yes | — | Plugin + marketplace | `in progress` | Instruction wrapper [`instructions/claude-code/SKILL.md`](../../instructions/claude-code/SKILL.md) on `main`; host guide and plugin pending |
-| Cursor | Yes | Yes | — | Install deeplink, plugin | `in progress` | Rule [`instructions/cursor/ebbmem.mdc`](../../instructions/cursor/ebbmem.mdc) on `main`; host guide and bundle pending |
-| Grok Bot / xAI API | Yes (public HTTPS) | No | — | Connector guide, API snippet | `planned` | Requires public HTTPS `/mcp` endpoint |
-| LangGraph / LangChain / LangMem | Optional | No | `BaseStore`, middleware, tools | PyPI package | `planned` | Builds on [`packages/python/README.md`](../../packages/python/README.md) |
-| OpenClaw | Fallback | Fallback | Memory-slot plugin (`memory_search` / `memory_get`) | ClawHub package | `in progress` | Skill [`instructions/openclaw/SKILL.md`](../../instructions/openclaw/SKILL.md) on `main`; plugin package pending |
-| Open WebUI | Yes | Via `mcpo` | Filter Function | Community function | `planned` | Supports stateless `2026-07-28` `/mcp` and `Filter` hook |
-| Vercel AI SDK | Optional | No | Tools + model middleware | npm package | `planned` | Builds on [`packages/typescript/README.md`](../../packages/typescript/README.md) |
-| OpenAI Agents SDK / ChatGPT | Yes (ChatGPT connector) | No | `Session` + memory tools | PyPI package, connector recipe | `planned` | ChatGPT connector uses HTTPS `/mcp` |
-| LlamaIndex | Optional | No | Memory block | PyPI package | `planned` | Builds on [`packages/python/README.md`](../../packages/python/README.md) |
-| CrewAI | Optional | No | Storage backend | PyPI package | `planned` | Builds on [`packages/python/README.md`](../../packages/python/README.md) |
-| Google ADK | Optional | No | Memory service | PyPI package | `planned` | Builds on [`packages/python/README.md`](../../packages/python/README.md) |
-| Microsoft Agent Framework / Semantic Kernel / AutoGen | Optional | No | Context provider | NuGet / PyPI | `planned` | Native provider + MCP support |
-| Pydantic AI, Mastra | Yes | Yes | Setup recipes | Docs recipes | `planned` | MCP-first integration guides |
-| n8n, Dify, Flowise, LibreChat | Yes | LibreChat only | Setup recipes | Docs recipes | `planned` | MCP-first workflow & UI guides |
+<!-- BEGIN_COMPAT_TABLE -->
+Badge tiers (evaluated by [`conformance/ts/src/badges.ts`](../../conformance/ts/src/badges.ts)):
+
+- `gold` — Full IC-1 mock and live suites pass with MCP surface and safety invariants verified.
+- `silver` — Full IC-1 mock suite passes with safety invariants verified (live run pending).
+- `bronze` — Available on `main` with validated MCP surface, config schema, or partial mock hook checks.
+- `unverified` — `in progress` / `planned`, or failed a mandatory safety invariant gate.
+
+| Target | MCP Remote (`/mcp`) | MCP Local (`stdio`) | Native Adapter / Integration Shape | Distribution / Artifact | Status | Badge | On `main` & Notes |
+| --- | :---: | :---: | --- | --- | :---: | :---: | --- |
+| GitHub Copilot (VS Code) | Yes | Yes | — | `.vscode/mcp.json`, registry entry | `available` | `bronze` | [`hosts/vscode-copilot.md`](./hosts/vscode-copilot.md), [`configs/copilot/vscode.mcp.json`](../../configs/copilot/vscode.mcp.json), and [`registry/server.json`](../../registry/server.json) on `main`; untested live |
+| GitHub Copilot cloud agent / code review | Yes (API key, no OAuth) | No | — | Repo settings snippet | `available` | `bronze` | [`configs/copilot/copilot-cloud-agent.mcp.json`](../../configs/copilot/copilot-cloud-agent.mcp.json) and [`hosts/vscode-copilot.md`](./hosts/vscode-copilot.md) on `main`; untested live |
+| Claude Code / Claude Desktop | Yes | Yes | — | Plugin + marketplace | `available` | `bronze` | [`plugins/claude-code/`](../../plugins/claude-code/README.md), [`hosts/claude.md`](./hosts/claude.md), and [`instructions/claude-code/SKILL.md`](../../instructions/claude-code/SKILL.md) on `main`; hook tests against mock MCP; untested live |
+| Cursor | Yes | Yes | — | Install deeplink, plugin | `available` | `bronze` | [`plugins/cursor/`](../../plugins/cursor/README.md), [`hosts/cursor.md`](./hosts/cursor.md), and [`instructions/cursor/ebbmem.mdc`](../../instructions/cursor/ebbmem.mdc) on `main`; untested live |
+| Grok Bot / xAI API | Yes (public HTTPS) | No | — | Connector guide, API snippet | `planned` | `unverified` | Requires public HTTPS `/mcp` endpoint |
+| LangGraph / LangChain / LangMem | Optional | No | `BaseStore`, middleware, tools | PyPI package | `available` | `silver` | [`packages/langgraph-python/`](../../packages/langgraph-python/README.md) (`ebbmem-langgraph`) source and mock IC-1 tests on `main`; PyPI publish and live pending |
+| OpenClaw | Fallback | Fallback | Memory-slot plugin (`memory_search` / `memory_get`) | ClawHub package | `in progress` | `unverified` | Skill [`instructions/openclaw/SKILL.md`](../../instructions/openclaw/SKILL.md) on `main`; plugin package pending |
+| Open WebUI | Yes | Via `mcpo` | Filter Function | Community function | `planned` | `unverified` | Filter Function and native MCP guide pending |
+| Vercel AI SDK | Optional | No | Tools + model middleware | npm package | `available` | `silver` | [`packages/ai-sdk/`](../../packages/ai-sdk/README.md) (`@ebbmem/ai-sdk`) source and mock IC-1 tests on `main`; npm publish and live pending |
+| OpenAI Agents SDK / ChatGPT | Yes (ChatGPT connector) | No | `Session` + memory tools | PyPI package, connector recipe | `available` | `silver` | [`packages/openai-agents-python/`](../../packages/openai-agents-python/README.md) (`ebbmem-openai-agents`) source, mock tests, and [`docs/recipes/chatgpt.md`](../recipes/chatgpt.md) on `main`; PyPI publish and live pending |
+| LlamaIndex | Optional | No | Memory block | PyPI package | `planned` | `unverified` | Builds on [`packages/python/README.md`](../../packages/python/README.md) |
+| CrewAI | Optional | No | Storage backend | PyPI package | `planned` | `unverified` | Builds on [`packages/python/README.md`](../../packages/python/README.md) |
+| Google ADK | Optional | No | Memory service | PyPI package | `planned` | `unverified` | Builds on [`packages/python/README.md`](../../packages/python/README.md) |
+| Microsoft Agent Framework / Semantic Kernel / AutoGen | Optional | No | Context provider | NuGet / PyPI | `planned` | `unverified` | Native provider + MCP support |
+| Pydantic AI, Mastra | Yes | Yes | Setup recipes | Docs recipes | `planned` | `unverified` | MCP-first integration guides |
+| n8n, Dify, Flowise, LibreChat | Yes | LibreChat only | Setup recipes | Docs recipes | `planned` | `unverified` | MCP-first workflow & UI guides |
+<!-- END_COMPAT_TABLE -->
 
 ## Contributing an Integration Guide or Adapter
 
