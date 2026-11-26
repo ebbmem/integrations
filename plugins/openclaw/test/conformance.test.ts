@@ -272,7 +272,7 @@ describe("OpenClaw EbbMem IC-1 Mock Conformance", () => {
     register(aliceApi, { env: {} });
     const aliceMem = await aliceApi.invokeTool(
       "memory_remember",
-      { content: "Alice confidential preference", tier: "semantic" },
+      { content: "Alice private preference", tier: "semantic" },
       { userId: "alice" },
     );
 
