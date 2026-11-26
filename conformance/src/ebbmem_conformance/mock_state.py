@@ -22,6 +22,7 @@ SUPPORTED_MCP_VERSIONS = (
 )
 SPACING_WINDOW_MS = 1_800_000
 VALID_TIERS = frozenset({"working", "episodic", "semantic", "procedural"})
+VALID_EPISODIC_ROLES = frozenset({"user", "assistant", "system", "tool"})
 LOCAL_ORIGINS = frozenset({"localhost", "127.0.0.1", "::1", "[::1]"})
 
 
@@ -97,6 +98,20 @@ class MemoryItem:
 
 
 @dataclass
+class EpisodicTurn:
+    """In-memory stateful episodic conversation turn."""
+
+    sequence_id: int
+    namespace: str
+    thread_key: str
+    role: str
+    content: str
+    tags: list[str]
+    memory_id: str
+    created_at_ms: int
+
+
+@dataclass
 class MockServerState:
     """Thread-safe mutable state for MockEbbmemServer."""
 
@@ -105,6 +120,8 @@ class MockServerState:
     clock_ms: int = 1_700_000_000_000
     memories: dict[str, dict[str, MemoryItem]] = field(default_factory=dict)
     idempotency: dict[tuple[str, str], IdempotencyRecord] = field(default_factory=dict)
+    episodic_threads: dict[tuple[str, str], list[EpisodicTurn]] = field(default_factory=dict)
+    episodic_idempotency: dict[tuple[str, str], IdempotencyRecord] = field(default_factory=dict)
     in_flight_keys: set[str] = field(default_factory=set)
     erased_namespaces: set[str] = field(default_factory=set)
     exposure_log_enabled_namespaces: set[str] = field(default_factory=set)
@@ -154,6 +171,33 @@ def _parse_int(value: Any) -> int | None:
         return None
 
 
+def parse_bool_param(value: Any) -> bool | None:
+    """Parse boolean query parameter ('true'/'1' -> True, 'false'/'0' -> False)."""
+    if isinstance(value, bool):
+        return value
+    if not isinstance(value, str):
+        return None
+    lowered = value.strip().lower()
+    if lowered in {"true", "1"}:
+        return True
+    if lowered in {"false", "0"}:
+        return False
+    return None
+
+
+def parse_metadata_filter(raw: str) -> dict[str, Any] | None:
+    """Parse JSON object metadata_filter query parameter."""
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    return parsed
+
+
 def _fingerprint_remember(
     namespace: str,
     content: str,
@@ -176,6 +220,27 @@ def _fingerprint_remember(
             "arousal": arousal,
             "session_id": session_id,
             "metadata": metadata,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _fingerprint_episodic(
+    namespace: str,
+    thread_key: str,
+    role: str,
+    content: str,
+    tags: list[str],
+) -> str:
+    canonical = json.dumps(
+        {
+            "namespace": namespace,
+            "thread_key": thread_key,
+            "role": role,
+            "content": content,
+            "tags": sorted(tags),
         },
         sort_keys=True,
         separators=(",", ":"),

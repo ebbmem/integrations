@@ -8,6 +8,8 @@ from urllib.parse import urlsplit
 
 from ebbmem_conformance.mock_memory_ops import (
     create_memory,
+    execute_episodic_remember,
+    execute_episodic_tail,
     execute_recall,
     execute_reinforce,
     get_status,
@@ -355,15 +357,25 @@ def execute_mcp_tool(
 ) -> tuple[int, dict[str, Any] | None, dict[str, Any] | None]:
     state = handler.state
     structured: dict[str, Any]
-    if tool_name in {"memory_remember", "memory_episodic_remember"}:
-        args = dict(arguments)
-        if tool_name == "memory_episodic_remember":
-            args["tier"] = "episodic"
-        status, payload, _ = create_memory(state, identity, namespace, args)
+    if tool_name == "memory_remember":
+        status, payload, _ = create_memory(state, identity, namespace, dict(arguments))
         if status >= 400:
             code = -32602 if status == 422 else -32000
             return status, None, {"code": code, "message": str(payload.get("detail"))}
         structured = payload
+    elif tool_name == "memory_episodic_remember":
+        header_idem = handler.headers.get("Idempotency-Key")
+        status, ep_payload, ep_err = execute_episodic_remember(
+            state, identity, namespace, dict(arguments), header_idempotency_key=header_idem
+        )
+        if ep_err is not None or ep_payload is None:
+            return status, None, ep_err
+        structured = ep_payload
+    elif tool_name == "memory_episodic_tail":
+        status, tail_payload, tail_err = execute_episodic_tail(state, namespace, dict(arguments))
+        if tail_err is not None or tail_payload is None:
+            return status, None, tail_err
+        structured = tail_payload
     elif tool_name in {"memory_recall", "memory_search", "memory_context_pack"}:
         raw_query = arguments.get("query", "")
         if not isinstance(raw_query, str):

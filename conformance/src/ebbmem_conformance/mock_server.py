@@ -13,6 +13,7 @@ from urllib.parse import parse_qs, urlsplit
 from ebbmem_conformance.mock_mcp import handle_mcp_request
 from ebbmem_conformance.mock_memory_ops import (
     create_memory,
+    execute_list_memories,
     execute_recall,
     execute_reinforce,
     get_status,
@@ -25,7 +26,9 @@ from ebbmem_conformance.mock_state import (
     SPACING_WINDOW_MS,
     SUPPORTED_MCP_VERSIONS,
     URL_CREDENTIAL_PARAMS,
+    VALID_EPISODIC_ROLES,
     VALID_TIERS,
+    EpisodicTurn,
     IdempotencyRecord,
     Identity,
     MemoryItem,
@@ -36,6 +39,7 @@ from ebbmem_conformance.mock_state import (
 
 __all__ = [
     "BUILTIN_IDENTITIES",
+    "EpisodicTurn",
     "IdempotencyRecord",
     "Identity",
     "LOCAL_ORIGINS",
@@ -46,6 +50,7 @@ __all__ = [
     "SPACING_WINDOW_MS",
     "SUPPORTED_MCP_VERSIONS",
     "URL_CREDENTIAL_PARAMS",
+    "VALID_EPISODIC_ROLES",
     "VALID_TIERS",
 ]
 
@@ -268,6 +273,15 @@ class _MockRequestHandler(BaseHTTPRequestHandler):
         if identity is None:
             return
 
+        if path == "/api/v1/memory":
+            ns_param = query.get("namespace", [None])[0]
+            ns = self._resolve_namespace(identity, ns_param, path)
+            if ns is None:
+                return
+            status, payload = execute_list_memories(self.state, ns, query)
+            self._send_json(status, payload, record_path=path)
+            return
+
         if path == "/api/v1/memory/recall":
             ns_param = query.get("namespace", [None])[0]
             ns = self._resolve_namespace(identity, ns_param, path)
@@ -354,6 +368,15 @@ class _MockRequestHandler(BaseHTTPRequestHandler):
         if path == "/api/v1/memory/remember":
             self._handle_rest_remember(identity, body, path)
             return
+        if path == "/api/v1/memory":
+            ns_param = query.get("namespace", [None])[0]
+            ns = self._resolve_namespace(identity, ns_param, path)
+            if ns is None:
+                return
+            status, payload = execute_list_memories(self.state, ns, query)
+            self._send_json(status, payload, record_path=path)
+            return
+
         if path == "/api/v1/memory/recall":
             self._handle_rest_recall(identity, body, path)
             return
@@ -573,6 +596,14 @@ class MockEbbmemServer:
         with self._state.lock:
             self._state.erased_namespaces.add(namespace)
             self._state.memories.pop(namespace, None)
+            for key in [k for k in self._state.episodic_threads if k[0] == namespace]:
+                self._state.episodic_threads.pop(key, None)
+            for key in [k for k in self._state.episodic_idempotency if k[0] == namespace]:
+                self._state.episodic_idempotency.pop(key, None)
+
+    def get_episodic_turns(self, namespace: str, thread_key: str) -> list[EpisodicTurn]:
+        with self._state.lock:
+            return list(self._state.episodic_threads.get((namespace, thread_key), []))
 
     def set_in_flight(self, idempotency_key: str, active: bool) -> None:
         with self._state.lock:

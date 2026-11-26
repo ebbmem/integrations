@@ -7,16 +7,21 @@ import uuid
 from typing import Any
 
 from ebbmem_conformance.mock_state import (
+    VALID_EPISODIC_ROLES,
     VALID_TIERS,
+    EpisodicTurn,
     IdempotencyRecord,
     Identity,
     MemoryItem,
     MockServerState,
+    _fingerprint_episodic,
     _fingerprint_remember,
     _is_vchar_1_256,
     _parse_finite_float,
     _parse_int,
     _reinforce_one,
+    parse_bool_param,
+    parse_metadata_filter,
 )
 
 
@@ -279,6 +284,360 @@ def execute_recall(
             payload["recall_id"] = recall_id
 
     return payload
+
+
+def execute_list_memories(
+    state: MockServerState,
+    namespace: str,
+    query: dict[str, list[str]],
+) -> tuple[int, dict[str, Any]]:
+    """Strictly read-only paginated listing for GET /api/v1/memory."""
+    limit_raw = query.get("limit", [None])[0]
+    page_size_raw = query.get("page_size", [None])[0]
+    parsed_limit: int | None = None
+    parsed_page_size: int | None = None
+
+    if limit_raw is not None:
+        parsed_limit = _parse_int(limit_raw)
+        if parsed_limit is None or parsed_limit < 1 or parsed_limit > 100:
+            return 422, {"detail": "invalid_limit"}
+    if page_size_raw is not None:
+        parsed_page_size = _parse_int(page_size_raw)
+        if parsed_page_size is None or parsed_page_size < 1 or parsed_page_size > 100:
+            return 422, {"detail": "invalid_page_size"}
+    effective_limit = (
+        parsed_limit
+        if parsed_limit is not None
+        else (parsed_page_size if parsed_page_size is not None else 50)
+    )
+
+    cursor_raw = query.get("cursor", [None])[0]
+    parsed_cursor: int | None = None
+    if cursor_raw is not None:
+        parsed_cursor = _parse_int(cursor_raw)
+        if parsed_cursor is None or parsed_cursor < 0:
+            return 422, {"detail": "invalid_cursor"}
+
+    page_raw = query.get("page", [None])[0]
+    page = 1
+    if page_raw is not None:
+        parsed_page = _parse_int(page_raw)
+        if parsed_page is None or parsed_page < 1:
+            return 422, {"detail": "invalid_page"}
+        page = parsed_page
+
+    offset = parsed_cursor if parsed_cursor is not None else (page - 1) * effective_limit
+
+    tier_filter = query.get("tier", [None])[0]
+    if tier_filter is not None and tier_filter not in VALID_TIERS:
+        return 422, {"detail": "invalid_tier"}
+
+    tags_filter: list[str] = []
+    for raw_tag in query.get("tags", []):
+        for part in raw_tag.split(","):
+            cleaned = part.strip()
+            if cleaned:
+                tags_filter.append(cleaned)
+
+    tombstoned_raw = query.get("tombstoned", [None])[0]
+    tombstoned_bool = False
+    if tombstoned_raw is not None:
+        parsed_tomb = parse_bool_param(tombstoned_raw)
+        if parsed_tomb is None:
+            return 422, {"detail": "invalid_tombstoned"}
+        tombstoned_bool = parsed_tomb
+
+    search_raw = query.get("search", [None])[0]
+    search_lower = search_raw.lower() if search_raw else ""
+    session_filter = query.get("session_id", [None])[0]
+
+    min_importance: float | None = None
+    min_imp_raw = query.get("min_importance", [None])[0]
+    if min_imp_raw is not None:
+        min_importance = _parse_finite_float(min_imp_raw)
+        if min_importance is None:
+            return 422, {"detail": "invalid_min_importance"}
+
+    min_valence: float | None = None
+    min_val_raw = query.get("min_valence", [None])[0]
+    if min_val_raw is not None:
+        min_valence = _parse_finite_float(min_val_raw)
+        if min_valence is None:
+            return 422, {"detail": "invalid_min_valence"}
+
+    max_valence: float | None = None
+    max_val_raw = query.get("max_valence", [None])[0]
+    if max_val_raw is not None:
+        max_valence = _parse_finite_float(max_val_raw)
+        if max_valence is None:
+            return 422, {"detail": "invalid_max_valence"}
+
+    mf_raw = query.get("metadata_filter", [None])[0]
+    metadata_filter: dict[str, Any] | None = None
+    if mf_raw is not None:
+        metadata_filter = parse_metadata_filter(mf_raw)
+        if metadata_filter is None:
+            return 422, {"detail": "invalid_metadata_filter"}
+
+    with state.lock:
+        candidates = list(state.memories.get(namespace, {}).values())
+        matched: list[MemoryItem] = []
+        for item in candidates:
+            if item.tombstoned is not tombstoned_bool:
+                continue
+            if tier_filter is not None and item.tier != tier_filter:
+                continue
+            if session_filter is not None and item.session_id != session_filter:
+                continue
+            if tags_filter and not set(tags_filter).issubset(set(item.tags)):
+                continue
+            if search_lower:
+                in_content = search_lower in item.content.lower()
+                in_tags = any(search_lower in t.lower() for t in item.tags)
+                if not in_content and not in_tags:
+                    continue
+            if min_importance is not None and item.importance < min_importance:
+                continue
+            if min_valence is not None and item.valence < min_valence:
+                continue
+            if max_valence is not None and item.valence > max_valence:
+                continue
+            if metadata_filter is not None and not all(
+                k in item.metadata and item.metadata[k] == v for k, v in metadata_filter.items()
+            ):
+                continue
+            matched.append(item)
+
+        matched.sort(key=lambda item: (item.created_at_ms, item.memory_id), reverse=True)
+        total = len(matched)
+        page_items = matched[offset : offset + effective_limit]
+        items_out = [
+            {**serialize_memory(item), "tombstoned": item.tombstoned} for item in page_items
+        ]
+        rows_out = [dict(row) for row in items_out]
+        has_more = (offset + len(items_out)) < total
+        next_cursor = str(offset + len(items_out)) if has_more else None
+
+    return 200, {
+        "items": items_out,
+        "rows": rows_out,
+        "total": total,
+        "total_count": total,
+        "has_more": has_more,
+        "next_cursor": next_cursor,
+    }
+
+
+def _resolve_thread_key(arguments: dict[str, Any]) -> str | None:
+    raw_thread_key = arguments.get("thread_key")
+    raw_session_id = arguments.get("session_id")
+    if raw_thread_key is not None:
+        if not isinstance(raw_thread_key, str) or not raw_thread_key.strip():
+            return None
+        return raw_thread_key
+    if raw_session_id is not None:
+        if not isinstance(raw_session_id, str) or not raw_session_id.strip():
+            return None
+        return raw_session_id
+    return "default"
+
+
+def execute_episodic_remember(
+    state: MockServerState,
+    identity: Identity,
+    namespace: str,
+    arguments: dict[str, Any],
+    header_idempotency_key: str | None = None,
+) -> tuple[int, dict[str, Any] | None, dict[str, Any] | None]:
+    """Stateful MCP memory_episodic_remember handler."""
+    if identity.role == "readonly":
+        return 403, None, {"code": -32003, "message": "Readonly key cannot write episodic turns"}
+
+    content = arguments.get("content")
+    if not isinstance(content, str) or not content.strip():
+        return 422, None, {"code": -32602, "message": "content_required"}
+
+    thread_key = _resolve_thread_key(arguments)
+    if thread_key is None:
+        return 422, None, {"code": -32602, "message": "invalid_thread_key"}
+
+    raw_role = arguments.get("role")
+    role = "user" if raw_role is None else raw_role
+    if not isinstance(role, str) or role not in VALID_EPISODIC_ROLES:
+        return 422, None, {"code": -32602, "message": "invalid_role"}
+
+    raw_tags = arguments.get("tags")
+    tags = [] if raw_tags is None else raw_tags
+    if not isinstance(tags, list) or not all(isinstance(t, str) for t in tags):
+        return 422, None, {"code": -32602, "message": "invalid_tags"}
+
+    body_idem_key = arguments.get("idempotency_key")
+    if (
+        header_idempotency_key is not None
+        and body_idem_key is not None
+        and header_idempotency_key != body_idem_key
+    ):
+        return (
+            400,
+            None,
+            {
+                "code": -32602,
+                "message": "EBB-100-022: idempotency_key_mismatch",
+                "data": {"code": "EBB-100-022"},
+            },
+        )
+
+    effective_idem_key = (
+        header_idempotency_key if header_idempotency_key is not None else body_idem_key
+    )
+    if effective_idem_key is not None and not _is_vchar_1_256(effective_idem_key):
+        return (
+            400,
+            None,
+            {
+                "code": -32602,
+                "message": "EBB-100-021: invalid_idempotency_key",
+                "data": {"code": "EBB-100-021"},
+            },
+        )
+
+    fingerprint = _fingerprint_episodic(
+        namespace=namespace,
+        thread_key=thread_key,
+        role=role,
+        content=content,
+        tags=list(tags),
+    )
+
+    with state.lock:
+        if effective_idem_key is not None:
+            if effective_idem_key in state.in_flight_keys:
+                return (
+                    409,
+                    None,
+                    {
+                        "code": -32000,
+                        "message": "EBB-700-023: idempotency_in_flight",
+                        "data": {"code": "EBB-700-023"},
+                    },
+                )
+            existing = state.episodic_idempotency.get((namespace, effective_idem_key))
+            if existing is not None:
+                if existing.fingerprint != fingerprint:
+                    return (
+                        422,
+                        None,
+                        {
+                            "code": -32000,
+                            "message": "EBB-100-024: idempotency_payload_mismatch",
+                            "data": {"code": "EBB-100-024"},
+                        },
+                    )
+                replay_payload = dict(existing.response)
+                replay_payload["replayed"] = True
+                return 200, replay_payload, None
+
+        turns = state.episodic_threads.setdefault((namespace, thread_key), [])
+        sequence_id = len(turns) + 1
+        mem_id = str(uuid.uuid4())
+        now_ms = state.clock_ms
+        turn = EpisodicTurn(
+            sequence_id=sequence_id,
+            namespace=namespace,
+            thread_key=thread_key,
+            role=role,
+            content=content,
+            tags=list(tags),
+            memory_id=mem_id,
+            created_at_ms=now_ms,
+        )
+        turns.append(turn)
+
+        item = MemoryItem(
+            memory_id=mem_id,
+            namespace=namespace,
+            content=content,
+            tier="episodic",
+            tags=list(tags),
+            importance=0.5,
+            valence=0.0,
+            arousal=0.2,
+            session_id=thread_key,
+            metadata={"role": role, "sequence_id": sequence_id, "thread_key": thread_key},
+            storage_strength=1.0,
+            recall_count=0,
+            reinforce_count=0,
+            created_at_ms=now_ms,
+            accessed_at_ms=now_ms,
+        )
+        state.memories.setdefault(namespace, {})[mem_id] = item
+
+        response = {
+            "status": "remembered",
+            "id": mem_id,
+            "memory_id": mem_id,
+            "namespace": namespace,
+            "thread_key": thread_key,
+            "session_id": thread_key,
+            "role": role,
+            "sequence_id": sequence_id,
+            "message_count": len(turns),
+            "tags": list(tags),
+            "tier": "episodic",
+            "storage_strength": 1.0,
+            "created_at_ms": now_ms,
+            "replayed": False,
+        }
+        if effective_idem_key is not None:
+            state.episodic_idempotency[(namespace, effective_idem_key)] = IdempotencyRecord(
+                fingerprint=fingerprint,
+                memory_id=mem_id,
+                response=dict(response),
+            )
+    return 200, response, None
+
+
+def execute_episodic_tail(
+    state: MockServerState,
+    namespace: str,
+    arguments: dict[str, Any],
+) -> tuple[int, dict[str, Any] | None, dict[str, Any] | None]:
+    """Strictly read-only MCP memory_episodic_tail handler."""
+    thread_key = _resolve_thread_key(arguments)
+    if thread_key is None:
+        return 400, None, {"code": -32602, "message": "Invalid params: thread_key"}
+
+    raw_limit = arguments.get("limit", 10)
+    limit = 10 if raw_limit is None else _parse_int(raw_limit)
+    if limit is None or limit < 1 or limit > 100:
+        return 400, None, {"code": -32602, "message": "Invalid params: limit"}
+
+    with state.lock:
+        turns = state.episodic_threads.get((namespace, thread_key), [])
+        selected = turns[-limit:]
+        turns_out = [
+            {
+                "sequence_id": t.sequence_id,
+                "thread_key": t.thread_key,
+                "role": t.role,
+                "content": t.content,
+                "tags": list(t.tags),
+                "memory_id": t.memory_id,
+                "created_at_ms": t.created_at_ms,
+            }
+            for t in selected
+        ]
+    return (
+        200,
+        {
+            "status": "ok",
+            "namespace": namespace,
+            "thread_key": thread_key,
+            "count": len(turns_out),
+            "turns": turns_out,
+        },
+        None,
+    )
 
 
 def execute_reinforce(
