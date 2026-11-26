@@ -1,0 +1,68 @@
+{
+  "name": "@spectrayan/openclaw-ebbmem",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "OpenClaw cognitive memory plugin for EbbMem: memory slot capability provider, universal memory_search/memory_get aliases, auto-recall/capture hooks, and CLI setup wizard.",
+  "license": "Apache-2.0",
+  "homepage": "https://ebbmem.ai",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ebbmem/integrations.git",
+    "directory": "plugins/openclaw"
+  },
+  "keywords": [
+    "openclaw",
+    "openclaw-plugin",
+    "memory",
+    "cognitive-memory",
+    "ebbmem",
+    "reinforcement"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "openclaw.plugin.json",
+    "skills",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "sideEffects": false,
+  "openclaw": {
+    "extensions": [
+      "./dist/index.js"
+    ]
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc -p tsconfig.test.json --noEmit",
+    "test": "tsc -p tsconfig.test.json && node --test build/test/test/*.test.js",
+    "test:unit": "tsc -p tsconfig.test.json && node --test build/test/test/unit.test.js",
+    "test:conformance": "tsc -p tsconfig.test.json && node --test build/test/test/conformance.test.js"
+  },
+  "dependencies": {
+    "ebbmem-integration-core": "file:../../packages/typescript",
+    "typebox": "^1.4.3"
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.5.2"
+  },
+  "peerDependenciesMeta": {
+    "openclaw": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.0.0"
+  }
+}

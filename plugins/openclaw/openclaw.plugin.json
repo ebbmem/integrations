@@ -1,0 +1,199 @@
+{
+  "id": "ebbmem",
+  "kind": "memory",
+  "name": "EbbMem Cognitive Memory",
+  "version": "0.1.0",
+  "description": "Remote and self-hosted EbbMem cognitive memory slot provider for OpenClaw with read-only recall, decay reinforcement, secret redaction, and per-agent namespace isolation.",
+  "entry": "./dist/index.js",
+  "skills": [
+    "./skills/ebbmem-memory"
+  ],
+  "contracts": {
+    "tools": [
+      "memory_search",
+      "memory_get",
+      "memory_remember",
+      "memory_reinforce",
+      "memory_forget"
+    ]
+  },
+  "cliCommands": [
+    {
+      "name": "ebbmem",
+      "description": "Configure and inspect the EbbMem cognitive memory plugin",
+      "hasSubcommands": true
+    }
+  ],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "baseUrl": {
+        "type": "string",
+        "description": "EbbMem HTTP base URL (remote HTTPS or local Docker e.g. http://127.0.0.1:8080). Credentials in URL are rejected."
+      },
+      "apiKey": {
+        "type": "string",
+        "description": "Header X-API-Key credential (mutually exclusive with bearerToken)."
+      },
+      "bearerToken": {
+        "type": "string",
+        "description": "Header Authorization Bearer token (mutually exclusive with apiKey)."
+      },
+      "tenant": {
+        "type": "string",
+        "default": "default",
+        "description": "Default tenant prefix used when deriving user or agent namespaces."
+      },
+      "userId": {
+        "type": "string",
+        "description": "Default user ID for namespace derivation when appNamespace and agentNamespaces are unset."
+      },
+      "appNamespace": {
+        "type": "string",
+        "description": "Fallback explicit EbbMem namespace when no per-agent override matches."
+      },
+      "defaultAgentId": {
+        "type": "string",
+        "description": "Fallback OpenClaw agent ID used when execution context omits agentId."
+      },
+      "agentNamespaces": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "string"
+        },
+        "description": "Per-agent namespace overrides keyed by OpenClaw agentId."
+      },
+      "autoRecall": {
+        "type": "boolean",
+        "default": true,
+        "description": "Automatically query read-only recall in before_agent_start and inject framed context."
+      },
+      "autoCapture": {
+        "type": "boolean",
+        "default": true,
+        "description": "Automatically persist redacted episodic turn summaries in agent_end."
+      },
+      "autoReinforce": {
+        "type": "boolean",
+        "default": true,
+        "description": "Reinforce only cited/used recalled memories after agent_end."
+      },
+      "preCompactionFlush": {
+        "type": "boolean",
+        "default": true,
+        "description": "Persist unsaved turn context before session compaction."
+      },
+      "recallLimit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 100,
+        "default": 6,
+        "description": "Default maximum number of memories recalled per turn."
+      },
+      "recallTier": {
+        "type": "string",
+        "enum": ["working", "episodic", "semantic", "procedural"],
+        "description": "Optional default memory tier filter for auto-recall."
+      },
+      "recallProfile": {
+        "type": "string",
+        "description": "Optional EbbMem recall scoring profile."
+      },
+      "recallMinScore": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1,
+        "description": "Optional minimum similarity/rank score threshold for recall."
+      },
+      "captureTier": {
+        "type": "string",
+        "enum": ["working", "episodic", "semantic", "procedural"],
+        "default": "episodic",
+        "description": "Default tier for auto-captured turn summaries."
+      },
+      "reinforceMode": {
+        "type": "string",
+        "enum": ["tool", "cited", "feedback", "injected"],
+        "default": "cited",
+        "description": "Post-use reinforcement selection mode."
+      },
+      "injected": {
+        "type": "boolean",
+        "default": false,
+        "description": "Keep false (default) so unused recalled memories decay naturally."
+      },
+      "reinforceDelta": {
+        "type": "number",
+        "minimum": -1,
+        "maximum": 1,
+        "default": 0.1,
+        "description": "Default storage strength delta for reinforcement calls."
+      },
+      "redactBeforeRemember": {
+        "type": "boolean",
+        "default": true,
+        "description": "Redact detected secrets/tokens/keys before calling memory_remember."
+      },
+      "failOpen": {
+        "type": "boolean",
+        "default": true,
+        "description": "Fail open on read-only recall/health errors so Gateway turns continue uninterrupted."
+      },
+      "telemetryEnabled": {
+        "type": "boolean",
+        "default": false,
+        "description": "Disabled by default (zero telemetry headers or external calls)."
+      },
+      "timeoutMs": {
+        "type": "integer",
+        "minimum": 100,
+        "default": 5000,
+        "description": "HTTP request timeout in milliseconds."
+      },
+      "maxRetries": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 10,
+        "default": 2,
+        "description": "Maximum retry count for idempotent EbbMem requests."
+      }
+    }
+  },
+  "uiHints": {
+    "baseUrl": {
+      "label": "EbbMem Base URL",
+      "placeholder": "https://ebbmem.example.com"
+    },
+    "apiKey": {
+      "label": "EbbMem API Key",
+      "sensitive": true,
+      "help": "Sent via X-API-Key header only. Leave empty when using bearerToken."
+    },
+    "bearerToken": {
+      "label": "Bearer Token",
+      "sensitive": true,
+      "help": "Sent via Authorization: Bearer header only. Leave empty when using apiKey."
+    },
+    "agentNamespaces": {
+      "label": "Per-Agent Namespaces",
+      "help": "Map OpenClaw agentId values to explicit EbbMem namespaces."
+    },
+    "injected": {
+      "label": "Reinforce All Injected Memories",
+      "help": "Keep false (default) so unused recalled memories decay naturally."
+    },
+    "telemetryEnabled": {
+      "label": "Enable Telemetry",
+      "help": "Off by default (zero telemetry)."
+    },
+    "redactBeforeRemember": {
+      "label": "Redact Secrets Before Remember",
+      "help": "Enabled by default to strip API keys, JWTs, and auth headers."
+    },
+    "failOpen": {
+      "label": "Fail Open on Recall Errors",
+      "help": "Enabled by default so unreachable EbbMem servers do not block agent turns."
+    }
+  }
+}
